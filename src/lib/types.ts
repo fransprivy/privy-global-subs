@@ -175,6 +175,9 @@ export interface Task {
 export interface UIState {
   showSpecTags: boolean;
   controlsOpen: boolean;
+  /** In-flow test guide (right-hand panel). Optional so states saved before it existed still load. */
+  guideOpen?: boolean;
+  checkedSteps?: string[];
   toast: { id: string; text: string; tone: "success" | "info" | "warn" } | null;
 }
 

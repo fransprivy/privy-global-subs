@@ -9,7 +9,6 @@ export interface ScenarioMeta {
   title: string;
   persona: string;
   description: string;
-  tryThis: string[];
   tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel";
 }
 
@@ -19,7 +18,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Free user",
     persona: "Frans, Free plan, 1 of 5 envelopes used",
     description: "The starting point from the screenshots. No card on file. Subscribe to Personal or Business from the plan page.",
-    tryThis: ["Upgrade plan → Personal Monthly → checkout with test card 4242", "Try card 4000 0025 0000 3155 to see the 3DS step", "Switch the toggle to Yearly and compare"],
     tag: "Start here",
   },
   {
@@ -27,7 +25,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Personal Monthly subscriber",
     persona: "Frans, Personal Monthly since 10 Aug 2026, renews 10 Oct",
     description: "A month into a monthly plan with a saved Visa. Every plan change is one click away.",
-    tryThis: ["Upgrade to Business: see the 'now' vs 'when my plan ends' choice", "Switch to Personal Yearly: remaining days roll over", "Cancel, then Resume from the banner"],
     tag: "Upgrade",
   },
   {
@@ -35,7 +32,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Personal Annual, 200 days left",
     persona: "Frans, Personal Yearly, paid until 29 Mar 2027",
     description: "The highest-risk matrix cell: upgrading now would forfeit 200 prepaid days. The scheduled option is the primary button here.",
-    tryThis: ["Upgrade to Business and read the forfeiture acknowledgment", "Pick 'Upgrade on 29 Mar 2027 instead' and watch the pending banner", "Downgrade to Personal Monthly (takes effect at period end)"],
     tag: "Upgrade",
   },
   {
@@ -43,7 +39,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Business owner, 6 seats",
     persona: "Frans, Business Monthly × 6 seats, workspace 'Privy Product Team'",
     description: "Workspace with members, automations, retention policies, e-Seal and branding. Downgrading shows the live loss checklist.",
-    tryThis: ["Downgrade to Personal: read the checklist with real member names", "Undo the scheduled change from the banner", "Advance the clock to 1 Oct to watch the change apply"],
     tag: "Downgrade",
   },
   {
@@ -51,7 +46,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Payment failed, Day 7 of grace",
     persona: "Frans, Personal Monthly, renewal on 3 Sep declined (insufficient funds)",
     description: "Retries on Day 3 failed; Day 7 retry is due today. Banner, emails and the Update payment method flow are all live.",
-    tryThis: ["Replace the card with 4242 to recover (billing date unchanged)", "Or advance the clock to Day 14 and watch the account drop to Free", "Open Emails to see N-05 and N-07"],
     tag: "Failure",
   },
   {
@@ -59,7 +53,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Downgrade scheduled",
     persona: "Frans, Business Monthly × 3, changing to Personal Monthly on 1 Oct",
     description: "A scheduled change waiting to take effect. Shows the pending banner with undo, and what happens on the effective date.",
-    tryThis: ["Click 'Keep my current plan' to undo", "Advance to 1 Oct: Personal is charged, members removed", "Upgrade instead and see the pending change removed"],
     tag: "Downgrade",
   },
   {
@@ -67,7 +60,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Cancellation pending",
     persona: "Frans, Personal Yearly, cancelled, access until 15 Oct 2026",
     description: "Cancelled but still inside the paid period. One-click resume from the banner or the email.",
-    tryThis: ["Resume from the banner", "Advance past 15 Oct to see the plan end and the account drop to Free", "Resubscribe afterwards: fresh billing date"],
     tag: "Cancel",
   },
   {
@@ -75,7 +67,6 @@ export const SCENARIOS: ScenarioMeta[] = [
     title: "Migrated prepaid user (stacked)",
     persona: "Frans, two prepaid Personal Yearly units, paid until 10 Nov 2027",
     description: "Bought under the old one-off model. No card, no consent to recurring charges. Must opt in; nothing is charged until prepaid time ends.",
-    tryThis: ["Turn on auto-renewal from the banner (nothing charged today)", "Try Upgrade to Business: only the scheduled option is offered", "Advance to the end of prepaid time"],
     tag: "Migration",
   },
 ];
@@ -131,7 +122,7 @@ function baseState(scenarioId: string): AppState {
     ],
     nextChargeOverride: null,
     optInDismissed: false,
-    ui: { showSpecTags: false, controlsOpen: false, toast: null },
+    ui: { showSpecTags: false, controlsOpen: false, guideOpen: true, checkedSteps: [], toast: null },
   };
 }
 

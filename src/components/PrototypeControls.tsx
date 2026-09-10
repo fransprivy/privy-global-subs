@@ -12,6 +12,8 @@ import { IconClose, IconMail, IconRefresh, IconSliders } from "./Icons";
 export function PrototypeControls() {
   const { s, api } = useAppState();
   const open = s.ui.controlsOpen;
+  const guideOpen = s.ui.guideOpen ?? true;
+  const rightOffset = guideOpen ? "lg:right-[376px] right-4" : "right-4";
   const sub = activeSubscription(s);
   const pe = prepaidEnd(s);
   const today = startOfDayUTC(s.now);
@@ -45,13 +47,13 @@ export function PrototypeControls() {
     <>
       <button
         onClick={() => api.setControlsOpen(!open)}
-        className="fixed bottom-4 right-4 z-[55] flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-black"
+        className={`fixed bottom-4 ${rightOffset} z-[55] flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-black`}
         aria-label="Prototype controls"
       >
         <IconSliders size={16} /> Prototype
       </button>
       {open && (
-        <div className="fixed bottom-16 right-4 z-[55] w-[min(380px,calc(100vw-2rem))] max-h-[80vh] overflow-y-auto rounded-2xl border border-line bg-white p-4 text-sm shadow-2xl">
+        <div className={`fixed bottom-16 ${rightOffset} z-[55] w-[min(380px,calc(100vw-2rem))] max-h-[80vh] overflow-y-auto rounded-2xl border border-line bg-white p-4 text-sm shadow-2xl`}>
           <div className="mb-3 flex items-center justify-between">
             <p className="font-display text-base font-semibold text-ink">Prototype controls</p>
             <button className="rounded p-1 text-muted hover:bg-page" onClick={() => api.setControlsOpen(false)} aria-label="Close">
@@ -123,6 +125,10 @@ export function PrototypeControls() {
             <label className="mt-3 flex items-center gap-2 text-xs text-ink-2">
               <input type="checkbox" className="accent-brand" checked={s.ui.showSpecTags} onChange={(e) => api.setShowSpecTags(e.target.checked)} />
               Show requirement tags (UX-xx, M-xx, R-xx) on the UI
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+              <input type="checkbox" className="accent-brand" checked={guideOpen} onChange={(e) => api.setGuideOpen(e.target.checked)} />
+              Show the test guide panel (Ctrl/Cmd + /)
             </label>
           </Section>
 

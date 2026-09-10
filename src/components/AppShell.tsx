@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { Banners } from "./Banners";
 import { FlowProvider } from "./flows";
 import { PrototypeControls } from "./PrototypeControls";
+import { TestGuide } from "./TestGuide";
 import { TopNav } from "./TopNav";
 import { IconCheckCircle, IconClose, IconInfo } from "./Icons";
 
@@ -25,15 +26,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const guideOpen = state.ui.guideOpen ?? true;
   return (
     <FlowProvider>
-      <div className="flex min-h-screen flex-col">
+      {/* On large screens the test guide docks on the right and the app narrows to make room. */}
+      <div className={`flex min-h-screen flex-col transition-[padding] ${guideOpen ? "lg:pr-[360px]" : ""}`}>
         <TopNav />
         <Banners />
         <main className="flex-1">{children}</main>
         <PrototypeControls />
         <Toast />
       </div>
+      <TestGuide />
     </FlowProvider>
   );
 }

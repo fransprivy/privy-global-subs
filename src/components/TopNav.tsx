@@ -44,7 +44,7 @@ export function TopNav() {
           })}
         </nav>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <span className="hidden text-[15px] text-ink-2 sm:inline">
+          <span className={`whitespace-nowrap text-[15px] text-ink-2 ${(s.ui.guideOpen ?? true) ? "hidden 2xl:inline" : "hidden sm:inline"}`}>
             {left === null ? "Unlimited sends" : `${left} sends left`}
           </span>
           <Link href={cta.href} className="btn-primary !py-2 text-[15px] whitespace-nowrap">

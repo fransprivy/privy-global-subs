@@ -20,6 +20,9 @@ interface StoreApi {
   setNextChargeOverride: (b: CardBehavior | null) => void;
   setShowSpecTags: (v: boolean) => void;
   setControlsOpen: (v: boolean) => void;
+  setGuideOpen: (v: boolean) => void;
+  toggleStep: (id: string) => void;
+  resetSteps: () => void;
   dismissToast: () => void;
   completeSubscription: (input: E.CheckoutInput) => void;
   upgradeNow: (input: E.UpgradeInput) => void;
@@ -83,12 +86,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       selectScenario: (id) => {
         const meta = SCENARIOS.find((x) => x.id === id) ? id : "free";
         const s = buildScenario(meta);
+        s.ui.guideOpen = stateRef.current?.ui.guideOpen ?? true;
         setState(s);
         save(s);
       },
       reset: () => {
         const id = stateRef.current?.scenarioId ?? "free";
         const s = buildScenario(id);
+        s.ui.guideOpen = stateRef.current?.ui.guideOpen ?? true;
         setState(s);
         save(s);
       },
@@ -98,6 +103,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setNextChargeOverride: (b) => update((s) => ({ ...s, nextChargeOverride: b })),
       setShowSpecTags: (v) => update((s) => ({ ...s, ui: { ...s.ui, showSpecTags: v } })),
       setControlsOpen: (v) => update((s) => ({ ...s, ui: { ...s.ui, controlsOpen: v } })),
+      setGuideOpen: (v) => update((s) => ({ ...s, ui: { ...s.ui, guideOpen: v } })),
+      toggleStep: (id) =>
+        update((s) => {
+          const cur = s.ui.checkedSteps ?? [];
+          return { ...s, ui: { ...s.ui, checkedSteps: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] } };
+        }),
+      resetSteps: () => update((s) => ({ ...s, ui: { ...s.ui, checkedSteps: [] } })),
       dismissToast: () => update((s) => ({ ...s, ui: { ...s.ui, toast: null } })),
       completeSubscription: (input) => update((s) => E.completeSubscription(s, input)),
       upgradeNow: (input) => update((s) => E.upgradeNow(s, input)),

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { PrivyMark } from "@/components/Logo";
 import { IconArrowRight } from "@/components/Icons";
+import { guideFor } from "@/lib/guide";
 import { SCENARIOS } from "@/lib/scenarios";
 import { useStore } from "@/lib/store";
 
@@ -49,7 +50,7 @@ export default function ScenarioPicker() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl font-semibold text-ink">Choose a scenario</h2>
-            <p className="text-sm text-muted">The simulated date is 10 September 2026. Use the Prototype button (bottom right) inside the app to move time forward, switch scenario or change the next charge outcome.</p>
+            <p className="text-sm text-muted">The simulated date is 10 September 2026. Inside the app, the test guide on the right lists each step with what to click and what to expect, ticks steps off as you go, and lets you move time forward. The Prototype button (bottom right) has the advanced controls.</p>
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -59,13 +60,13 @@ export default function ScenarioPicker() {
               <h3 className="mt-3 font-display text-lg font-semibold text-ink">{sc.title}</h3>
               <p className="mt-1 text-xs font-medium text-muted">{sc.persona}</p>
               <p className="mt-2 flex-1 text-sm text-ink-2">{sc.description}</p>
-              <ul className="mt-3 space-y-1 text-xs text-muted">
-                {sc.tryThis.map((t) => (
-                  <li key={t} className="flex gap-1.5">
-                    <span className="text-brand">›</span> {t}
+              <ol className="mt-3 space-y-1 text-xs text-muted">
+                {guideFor(sc.id).steps.map((st, i) => (
+                  <li key={st.id} className="flex gap-1.5">
+                    <span className="font-semibold text-brand">{i + 1}.</span> {st.title}
                   </li>
                 ))}
-              </ul>
+              </ol>
               <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-brand">
                 Open scenario <IconArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
               </span>
@@ -84,7 +85,7 @@ export default function ScenarioPicker() {
           </div>
           <div>
             <p className="font-semibold text-ink">For the team</p>
-            <p className="mt-1">Turn on "Show requirement tags" in the Prototype panel to see which spec item (UX-xx, M-xx, R-xx, N-xx) each element implements. The Emails page renders every template with live data.</p>
+            <p className="mt-1">Each step in the test guide names the spec items it proves (UX-xx, M-xx, R-xx, N-xx). Turn on "Spec tags" in the guide footer to see those tags on the UI itself. The Emails page renders every template with live data.</p>
           </div>
         </div>
       </div>

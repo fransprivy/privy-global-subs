@@ -6,6 +6,15 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
+## Test guide (in-app)
+
+Every scenario has a step-by-step walkthrough docked on the right of the app: what to click, what you should see, and which spec items (UX-xx, M-xx, R-xx, N-xx) each step proves. Steps tick themselves off from the live state where possible; the rest can be ticked by hand. The footer of the guide has the simulated date, the "Jump to next event" button, the test-card cheat sheet and the Emails link, so you never have to leave the flow to check the README.
+
+- Collapse / expand: the X in the guide header, the tab on the right edge, or Ctrl/Cmd + /
+- Previous / next scenario: the arrows next to the scenario title
+- Reset: clears the scenario and the ticked steps
+- The steps live in `src/lib/guide.ts`; the scenario picker on the start page lists the same steps.
+
 ## Run locally
 
 ```bash
