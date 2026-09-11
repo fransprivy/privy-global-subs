@@ -36,9 +36,9 @@ export const SCENARIOS: ScenarioMeta[] = [
   },
   {
     id: "business-owner",
-    title: "Business owner, 6 seats",
-    persona: "Frans, Business Monthly × 6 seats, workspace 'Privy Product Team'",
-    description: "Workspace with members, automations, retention policies, e-Seal and branding. Downgrading shows the live loss checklist.",
+    title: "Business owner, 8 seats",
+    persona: "Frans, Business Monthly × 8 seats (6 in use), workspace 'Privy Product Team', Visa default + Mastercard backup",
+    description: "Workspace with members, automations, retention policies, e-Seal and branding. Add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
     tag: "Downgrade",
   },
   {
@@ -97,8 +97,9 @@ function workspace(business: boolean, memberCount = 1): Workspace {
     : { name: "Personal · Frans", members: MEMBERS.slice(0, 1), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true };
 }
 
-const VISA: Card = { brand: "visa", last4: "4242", expMonth: 12, expYear: 2027, behavior: "success", addedAt: "2026-08-10T09:00:00.000Z" };
-const SOFT_VISA: Card = { brand: "visa", last4: "9995", expMonth: 11, expYear: 2027, behavior: "soft_decline", addedAt: "2026-07-03T09:00:00.000Z" };
+const VISA: Card = { id: "card_visa4242", brand: "visa", last4: "4242", expMonth: 12, expYear: 2027, behavior: "success", addedAt: "2026-08-10T09:00:00.000Z" };
+const SOFT_VISA: Card = { id: "card_visa9995", brand: "visa", last4: "9995", expMonth: 11, expYear: 2027, behavior: "soft_decline", addedAt: "2026-07-03T09:00:00.000Z" };
+const MASTERCARD: Card = { id: "card_mc4444", brand: "mastercard", last4: "4444", expMonth: 6, expYear: 2028, behavior: "success", addedAt: "2026-08-15T09:00:00.000Z" };
 
 function baseState(scenarioId: string): AppState {
   return {
@@ -109,6 +110,7 @@ function baseState(scenarioId: string): AppState {
     subscription: null,
     prepaid: null,
     card: null,
+    backupCards: [],
     invoices: [],
     history: [],
     emails: [],
@@ -206,20 +208,22 @@ export function buildScenario(id: string): AppState {
       return {
         ...s,
         card: VISA,
+        backupCards: [MASTERCARD],
         workspace: workspace(true, 6),
-        subscription: sub({ tier: "business", interval: "monthly", seats: 6, currentPeriodStart: start, currentPeriodEnd: end, anchorDay: 1, renewalCount: 2, createdAt: "2026-07-01T09:00:00.000Z" }),
+        subscription: sub({ tier: "business", interval: "monthly", seats: 8, currentPeriodStart: start, currentPeriodEnd: end, anchorDay: 1, renewalCount: 2, createdAt: "2026-07-01T09:00:00.000Z" }),
         usage: { envelopesSent: 143, templates: 22, contacts: 210 },
         invoices: [
-          paidInvoice(3, start, "business", "monthly", 6, start, end),
-          paidInvoice(2, "2026-08-01T00:00:00.000Z", "business", "monthly", 6, "2026-08-01T00:00:00.000Z", start),
-          paidInvoice(1, "2026-07-01T09:00:00.000Z", "business", "monthly", 6, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
+          paidInvoice(3, start, "business", "monthly", 8, start, end),
+          paidInvoice(2, "2026-08-01T00:00:00.000Z", "business", "monthly", 8, "2026-08-01T00:00:00.000Z", start),
+          paidInvoice(1, "2026-07-01T09:00:00.000Z", "business", "monthly", 8, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
         ],
         history: [
-          { id: "h3", at: start, type: "renewed", title: "Business Monthly renewed", detail: "Charged A$231.00 for Sep 1, 2026 to Oct 1, 2026." },
-          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Business Monthly renewed", detail: "Charged A$231.00 for Aug 1, 2026 to Sep 1, 2026." },
-          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 6 seats", detail: "Charged A$231.00 to card ending 4242." },
+          { id: "h4", at: start, type: "renewed", title: "Business Monthly renewed", detail: "Charged A$308.00 for Sep 1, 2026 to Oct 1, 2026." },
+          { id: "h3", at: "2026-08-15T09:00:00.000Z", type: "card_added", title: "Backup card added", detail: "Mastercard ending 4444, expires 06/2028. Only charged if the default card is declined." },
+          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Business Monthly renewed", detail: "Charged A$308.00 for Aug 1, 2026 to Sep 1, 2026." },
+          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 8 seats", detail: "Charged A$308.00 to card ending 4242." },
         ],
-        consents: [{ id: "c1", at: "2026-07-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$231.00 to my card every month starting today until I cancel.", amount: 231, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-07-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$308.00 to my card every month starting today until I cancel.", amount: 308, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "past-due": {

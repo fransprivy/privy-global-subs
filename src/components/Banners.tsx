@@ -84,6 +84,29 @@ export function Banners() {
     );
   }
 
+  if (sub && sub.pendingSeats != null && sub.status !== "cancel_scheduled") {
+    items.push(
+      <Banner key="b02s" tone="info" icon={<IconClock size={20} />} spec="B-02">
+        <div className="flex-1">
+          <p className="font-semibold">
+            Your seats change from {sub.seats} to {sub.pendingSeats} on {fmtDate(sub.currentPeriodEnd)}.
+          </p>
+          <p className="text-xs opacity-80">
+            You keep {sub.seats} seats until then. From {fmtDate(sub.currentPeriodEnd)} you pay {fmtMoney(planPrice(sub.tier, sub.interval, sub.pendingSeats))} per {sub.interval === "monthly" ? "month" : "year"}. Nothing is refunded for the current period.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "seats" })}>
+            Change
+          </button>
+          <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.undoSeatChange()}>
+            Keep my {sub.seats} seats
+          </button>
+        </div>
+      </Banner>
+    );
+  }
+
   if (sub && sub.status === "cancel_scheduled") {
     items.push(
       <Banner key="b02c" tone="info" icon={<IconClock size={20} />} spec="B-02">

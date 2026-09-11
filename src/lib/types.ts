@@ -12,6 +12,8 @@ export type SubStatus =
 export type CardBehavior = "success" | "soft_decline" | "hard_decline" | "requires_action";
 
 export interface Card {
+  /** Stable id (optional for states saved before backup cards existed). */
+  id?: string;
   brand: "visa" | "mastercard" | "amex";
   last4: string;
   expMonth: number;
@@ -43,6 +45,8 @@ export interface PaymentAttempt {
   outcome: AttemptOutcome;
   declineCode?: string;
   onSession: boolean;
+  /** Which saved card was tried (default first, then backups in order). */
+  cardLast4?: string;
 }
 
 export interface Subscription {
@@ -66,6 +70,8 @@ export interface Subscription {
   attempts: PaymentAttempt[];
   createdAt: string;
   endedAt: string | null;
+  /** Business only: seat reduction that takes effect at the end of the current period (no refund). */
+  pendingSeats?: number | null;
 }
 
 export interface PrepaidPeriod {
@@ -109,6 +115,9 @@ export type HistoryType =
   | "resumed"
   | "ended"
   | "card_updated"
+  | "card_added"
+  | "card_removed"
+  | "seats_changed"
   | "opt_in"
   | "note";
 
@@ -133,7 +142,7 @@ export interface SentEmail {
 export interface ConsentRecord {
   id: string;
   at: string;
-  source: "checkout" | "upgrade" | "interval_change" | "resume" | "opt_in";
+  source: "checkout" | "upgrade" | "interval_change" | "resume" | "opt_in" | "seats";
   text: string;
   amount: number;
   interval: Interval;
@@ -188,7 +197,9 @@ export interface AppState {
   user: { name: string; email: string; maskedEmail: string };
   subscription: Subscription | null;
   prepaid: Prepaid | null;
+  /** Default card. Backups are tried in order when the default is declined (R-19b). */
   card: Card | null;
+  backupCards?: Card[];
   invoices: Invoice[];
   history: HistoryEvent[];
   emails: SentEmail[];

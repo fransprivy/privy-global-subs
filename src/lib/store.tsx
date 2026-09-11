@@ -31,6 +31,11 @@ interface StoreApi {
   cancelAtPeriodEnd: (reason?: string) => void;
   resume: (consentText: string) => void;
   replaceCard: (card: Card) => void;
+  addCard: (card: Card, makeDefault: boolean) => void;
+  setDefaultCard: (id: string) => void;
+  removeCard: (id: string) => string | null;
+  changeSeats: (target: number, consentText: string) => void;
+  undoSeatChange: () => void;
   confirmAuthentication: () => void;
   optIn: (card: Card, consentText: string, interval: Interval, tier?: PaidTier, seats?: number) => void;
   dismissOptIn: () => void;
@@ -45,6 +50,7 @@ function load(): AppState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppState;
     if (parsed.version !== 3) return null;
+    if (!parsed.backupCards) parsed.backupCards = [];
     return parsed;
   } catch {
     return null;
@@ -118,6 +124,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cancelAtPeriodEnd: (reason) => update((s) => E.cancelAtPeriodEnd(s, reason)),
       resume: (consentText) => update((s) => E.resumeSubscription(s, consentText)),
       replaceCard: (card) => update((s) => E.replaceCard(s, card)),
+      addCard: (card, makeDefault) => update((s) => E.addCard(s, card, makeDefault)),
+      setDefaultCard: (id) => update((s) => E.setDefaultCard(s, id)),
+      removeCard: (id) => {
+        const cur = stateRef.current;
+        if (!cur) return "No state";
+        const r = E.removeCard(cur, id);
+        if (!r.ok) return r.reason;
+        setState(r.state);
+        save(r.state);
+        return null;
+      },
+      changeSeats: (target, consentText) => update((s) => E.changeSeats(s, target, consentText)),
+      undoSeatChange: () => update((s) => E.undoSeatChange(s)),
       confirmAuthentication: () => update((s) => E.confirmAuthentication(s)),
       optIn: (card, consentText, interval, tier, seats) => update((s) => E.optInAutoRenew(s, card, consentText, interval, tier, seats)),
       dismissOptIn: () => update((s) => ({ ...s, optInDismissed: true })),

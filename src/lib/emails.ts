@@ -31,6 +31,11 @@ export interface EmailCtx {
   retryDates: string;
   oldPrice: string;
   newPrice: string;
+  seatsDelta: number;
+  seatsTotal: number;
+  proratedAmount: string;
+  backupLast4: string;
+  defaultLast4: string;
 }
 
 export interface EmailTemplateMeta {
@@ -70,7 +75,10 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-18", name: "Payment dispute", trigger: "Chargeback opened", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-19", name: "Price change notice", trigger: "Price change", timing: "30 days before first renewal at new price", legal: "Yes", group: "Other" },
   { id: "N-20", name: "Prepaid plan ended", trigger: "Prepaid time ended without opt-in", timing: "At prepaid end", legal: "No", group: "Migration" },
-  { id: "N-21", name: "Payment method updated", trigger: "Card replaced", timing: "Immediately", legal: "No (added: UX-19)", group: "Other" },
+  { id: "N-21", name: "Payment method updated", trigger: "Default card replaced or changed", timing: "Immediately", legal: "No (added: UX-19)", group: "Other" },
+  { id: "N-22", name: "Seats changed", trigger: "Business seats added (prorated charge) or reduction scheduled", timing: "Immediately", legal: "Receipt expected when charged", group: "Changes" },
+  { id: "N-23", name: "Backup card charged", trigger: "Default card declined, a backup card succeeded", timing: "Immediately after the charge", legal: "Recommended (transparency on which card was used)", group: "Renewal" },
+  { id: "N-24", name: "Backup card added", trigger: "A backup card was saved", timing: "Immediately", legal: "No", group: "Other" },
 ];
 
 const planPage = "/settings/billing";
@@ -275,7 +283,39 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-21":
       return {
         subject: `Your payment method was updated`,
-        body: [`Card ending ${c.last4} is now the card we charge for ${c.planName}. If you did not make this change, contact helpdesk@privy.id right away.`],
+        body: [`Card ending ${c.last4} is now the card we charge first for ${c.planName}. If you did not make this change, contact helpdesk@privy.id right away.`],
+      };
+    case "N-22":
+      return c.seatsDelta > 0
+        ? {
+            subject: `${c.seatsDelta} seat${c.seatsDelta === 1 ? "" : "s"} added to your Privy Business workspace`,
+            body: [
+              `We charged ${c.proratedAmount} today for the rest of your current billing period. Your workspace now has ${c.seatsTotal} seats and keeps the same renewal date.`,
+              `From ${c.nextDate} your renewal is ${c.newAmount} per ${c.intervalWord}. Invoice ${c.invoiceNumber} is attached.`,
+            ],
+            cta: { label: "Manage seats", href: "/settings/billing" },
+          }
+        : {
+            subject: `Your seats change to ${c.seatsTotal} on ${c.effectiveDate}`,
+            body: [
+              `You keep your current seats until ${c.effectiveDate}. Nothing is refunded for the rest of this period.`,
+              `From ${c.effectiveDate} your renewal is ${c.newAmount} per ${c.intervalWord}. Changed your mind? Keep your current seats with one click.`,
+            ],
+            cta: { label: "Keep my current seats", href: "/settings/billing?action=undo-seats" },
+          };
+    case "N-23":
+      return {
+        subject: `We charged your backup card for ${c.planName}`,
+        body: [
+          `Your default card ending ${c.defaultLast4} was declined, so we charged ${c.amount} to your backup card ending ${c.backupLast4}. Your plan continues without interruption.`,
+          `To avoid this next time, update your default card or make the backup card your default.`,
+        ],
+        cta: { label: "Manage payment methods", href: "/settings/billing/payment-method" },
+      };
+    case "N-24":
+      return {
+        subject: `Backup card added`,
+        body: [`Card ending ${c.backupLast4} was saved as a backup. We only charge it if your default card is declined. If you did not make this change, contact helpdesk@privy.id right away.`],
       };
     default:
       return { subject: id, body: [] };

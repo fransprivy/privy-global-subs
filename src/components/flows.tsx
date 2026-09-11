@@ -4,9 +4,13 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { ANNUAL_SAVINGS, TIER_LABEL } from "@/lib/catalog";
 import {
   activeSubscription,
+  allCards,
+  brandLabel,
+  cardId,
   classifyChange,
   CONFIG,
   downgradeLosses,
+  previewSeatChange,
   intervalWord,
   isPrepaidUser,
   periodEnd,
@@ -19,7 +23,7 @@ import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
 import { CheckoutDrawer, type CheckoutMode } from "./CheckoutDrawer";
 import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, IconPlus, IconWarning } from "./Icons";
-import { CardForm, cardFormValid, cardFromForm, ThreeDSModal, type CardFormValue } from "./payments";
+import { CardBrandBadge, CardForm, cardFormValid, cardFromForm, ThreeDSModal, type CardFormValue } from "./payments";
 import { Checkbox, Modal, Spec } from "./ui";
 
 export type Flow =
@@ -27,6 +31,9 @@ export type Flow =
   | { type: "cancel" }
   | { type: "resume" }
   | { type: "replaceCard" }
+  | { type: "addCard"; makeDefault?: boolean }
+  | { type: "removeCard"; id: string }
+  | { type: "seats" }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
   | { type: "handover" };
@@ -64,7 +71,13 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
     case "resume":
       return <ResumeModal close={close} />;
     case "replaceCard":
-      return <ReplaceCardModal close={close} />;
+      return <AddCardModal close={close} makeDefault />;
+    case "addCard":
+      return <AddCardModal close={close} makeDefault={flow.makeDefault} />;
+    case "removeCard":
+      return <RemoveCardModal close={close} id={flow.id} />;
+    case "seats":
+      return <SeatsModal close={close} />;
     case "authenticate":
       return <AuthenticateFlow close={close} />;
     case "optin":
@@ -517,18 +530,21 @@ function ResumeModal({ close }: { close: () => void }) {
 }
 
 /* M-08 */
-function ReplaceCardModal({ close }: { close: () => void }) {
+function AddCardModal({ close, makeDefault: makeDefaultIn }: { close: () => void; makeDefault?: boolean }) {
   const { s, api } = useAppState();
   const sub = activeSubscription(s);
+  const hasDefault = !!s.card;
   const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
+  const [makeDefault, setMakeDefault] = useState(makeDefaultIn ?? !hasDefault);
   const [stage, setStage] = useState<"form" | "3ds" | "saving">("form");
   const pastDue = sub?.status === "past_due";
-  const pendingAmount = sub ? planPrice(sub.scheduledChange?.tier ?? sub.tier, sub.scheduledChange?.interval ?? sub.interval, sub.scheduledChange?.seats ?? sub.seats) : 0;
+  const pendingAmount = sub ? planPrice(sub.scheduledChange?.tier ?? sub.tier, sub.scheduledChange?.interval ?? sub.interval, sub.scheduledChange?.seats ?? sub.pendingSeats ?? sub.seats) : 0;
+  const backups = s.backupCards ?? [];
 
   function save(card: Card) {
     setStage("saving");
     setTimeout(() => {
-      api.replaceCard(card);
+      api.addCard(card, makeDefault);
       close();
     }, 500);
   }
@@ -539,12 +555,14 @@ function ReplaceCardModal({ close }: { close: () => void }) {
     else save(card);
   }
 
+  const title = !hasDefault ? "Add a payment method" : makeDefault ? "Replace your default card" : "Add a backup card";
+
   return (
     <>
       <Modal
         open
         onClose={close}
-        title={s.card ? "Update payment method" : "Add a payment method"}
+        title={title}
         spec="M-08"
         footer={
           <>
@@ -562,12 +580,27 @@ function ReplaceCardModal({ close }: { close: () => void }) {
             We will not charge you now.{" "}
             {pastDue && (
               <span>
-                Because a payment of <strong className="text-ink">{fmtMoney(pendingAmount)}</strong> is pending, we will retry it right away with the new card. <Spec id="R-22" />
+                Because a payment of <strong className="text-ink">{fmtMoney(pendingAmount)}</strong> is pending, we will retry it right away after saving. <Spec id="R-22" />
               </span>
             )}
           </p>
           <CardForm value={form} onChange={setForm} nowIso={s.now} />
-          <p className="text-xs text-muted">Your bank may ask you to confirm the new card (no charge). <Spec id="UX-14" /></p>
+          {hasDefault && (
+            <label className="flex items-start gap-2 rounded-lg border border-line-2 px-3 py-2.5 text-sm">
+              <input type="checkbox" className="mt-0.5 accent-brand" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} />
+              <span>
+                <span className="font-medium text-ink">Make this my default card</span>
+                <span className="block text-xs text-muted">
+                  {makeDefault
+                    ? `Charged first from now on. Your current default (ending ${s.card!.last4}) becomes a backup.`
+                    : `Saved as backup ${backups.length + 1}. Only charged if your default card${backups.length ? " and earlier backups are" : " is"} declined.`}
+                </span>
+              </span>
+            </label>
+          )}
+          <p className="text-xs text-muted">
+            Your bank may ask you to confirm the new card (no charge). <Spec id="UX-14" />
+          </p>
         </div>
       </Modal>
       {stage === "3ds" && (
@@ -575,6 +608,222 @@ function ReplaceCardModal({ close }: { close: () => void }) {
           amount="A$0.00 (card verification)"
           last4={cardFromForm(form, s.now).last4}
           onApprove={() => save({ ...cardFromForm(form, s.now), behavior: "success" })}
+          onCancel={() => setStage("form")}
+        />
+      )}
+    </>
+  );
+}
+
+function RemoveCardModal({ close, id }: { close: () => void; id: string }) {
+  const { s, api } = useAppState();
+  const [error, setError] = useState<string | null>(null);
+  const card = allCards(s).find((c) => cardId(c) === id);
+  const sub = activeSubscription(s);
+  if (!card) {
+    close();
+    return null;
+  }
+  const isDefault = !!s.card && cardId(s.card) === id;
+  const backups = s.backupCards ?? [];
+  const promoted = isDefault ? backups[0] : null;
+  const blocked = isDefault && !!sub && backups.length === 0;
+
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Remove card ending ${card.last4}?`}
+      spec="UX-17"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Keep card
+          </button>
+          <button
+            className="btn-danger-outline"
+            disabled={blocked}
+            onClick={() => {
+              const err = api.removeCard(id);
+              if (err) setError(err);
+              else close();
+            }}
+          >
+            Remove card
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <div className="flex items-center gap-3 rounded-xl border border-line-2 px-4 py-3">
+          <CardBrandBadge brand={card.brand} />
+          <div>
+            <p className="font-medium text-ink">
+              {brandLabel(card.brand)} ending {card.last4} <span className="ml-1 text-xs font-normal text-muted">{isDefault ? "Default" : "Backup"}</span>
+            </p>
+            <p className="text-xs text-muted">
+              Expires {String(card.expMonth).padStart(2, "0")}/{card.expYear}
+            </p>
+          </div>
+        </div>
+        {blocked ? (
+          <p className="rounded-lg bg-warn-tint px-3 py-2 text-warn">This is the only card on an active subscription. Add another card first, or cancel your subscription to remove it.</p>
+        ) : isDefault && promoted ? (
+          <p>
+            Your backup card ending <strong className="text-ink">{promoted.last4}</strong> becomes the default and will be charged for {sub ? planName(sub.tier, sub.interval) : "future plans"}.
+          </p>
+        ) : (
+          <p>{sub ? "Your default card is not affected. We will no longer fall back to this card if the default is declined." : "This card will no longer be saved to your account."}</p>
+        )}
+        {error && <p className="text-danger">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/* Business seats: add now (prorated to the same end date), remove at period end */
+function SeatsModal({ close }: { close: () => void }) {
+  const { s, api } = useAppState();
+  const sub = activeSubscription(s);
+  const [target, setTarget] = useState(sub?.pendingSeats ?? sub?.seats ?? 1);
+  const [ack, setAck] = useState(false);
+  const [stage, setStage] = useState<"form" | "processing" | "3ds" | "declined">("form");
+  if (!sub || sub.tier !== "business") {
+    close();
+    return null;
+  }
+  const p = previewSeatChange(s, target);
+  const adding = p.delta > 0;
+  const removing = p.delta < 0;
+  const card = s.card;
+  const consentText = adding
+    ? `I agree to be charged ${fmtMoney(p.chargeToday)} today for ${p.delta} additional seat${p.delta === 1 ? "" : "s"} and ${fmtMoney(p.nextRenewalAmount)} every ${intervalWord(sub.interval)} from ${fmtDate(sub.currentPeriodEnd)} until I cancel.`
+    : "";
+
+  function finish() {
+    api.changeSeats(target, consentText);
+    close();
+  }
+  function pay() {
+    if (!card) return;
+    setStage("processing");
+    setTimeout(() => {
+      switch (card.behavior) {
+        case "success":
+          finish();
+          break;
+        case "requires_action":
+          setStage("3ds");
+          break;
+        default:
+          setStage("declined");
+      }
+    }, 600);
+  }
+
+  const canSubmit = !p.blockedReason && p.delta !== 0 && (!adding || (ack && !!card)) && stage === "form";
+
+  return (
+    <>
+      <Modal
+        open
+        onClose={close}
+        title="Manage seats"
+        spec="M-09"
+        footer={
+          <>
+            <button className="btn-secondary" onClick={close}>
+              Cancel
+            </button>
+            {sub.pendingSeats != null && (
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  api.undoSeatChange();
+                  close();
+                }}
+              >
+                Keep my {sub.seats} seats
+              </button>
+            )}
+            <button className="btn-primary" disabled={!canSubmit} onClick={adding ? pay : finish}>
+              {stage === "processing" ? "Processing…" : adding ? `Add ${p.delta} seat${p.delta === 1 ? "" : "s"} and pay ${fmtMoney(p.chargeToday)}` : removing ? `Reduce to ${target} on ${fmtDate(sub.currentPeriodEnd)}` : "No change"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4 text-sm">
+          <div className="flex items-center justify-between rounded-xl border border-line-2 px-4 py-3">
+            <div>
+              <p className="font-medium text-ink">Seats in this workspace</p>
+              <p className="text-xs text-muted">
+                {p.membersInUse} of {sub.seats} in use · {fmtMoney(p.unit)} per seat per {intervalWord(sub.interval)} · renews {fmtDate(sub.currentPeriodEnd)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="rounded-md border border-line-2 p-1.5 text-ink-2 hover:bg-page disabled:opacity-40" disabled={target <= 1} onClick={() => setTarget((n) => Math.max(1, n - 1))} aria-label="Fewer seats">
+                <IconMinus size={16} />
+              </button>
+              <span className="w-8 text-center text-lg font-semibold text-ink">{target}</span>
+              <button className="rounded-md border border-line-2 p-1.5 text-ink-2 hover:bg-page disabled:opacity-40" disabled={target >= 50} onClick={() => setTarget((n) => Math.min(50, n + 1))} aria-label="More seats">
+                <IconPlus size={16} />
+              </button>
+            </div>
+          </div>
+
+          {sub.pendingSeats != null && p.delta === 0 && (
+            <p className="rounded-lg bg-info-tint px-3 py-2 text-info">
+              A reduction to {sub.pendingSeats} seats is scheduled for {fmtDate(sub.currentPeriodEnd)}. Change the number above to replace it, or keep your current seats.
+            </p>
+          )}
+
+          {p.blockedReason && p.delta !== 0 && <p className="rounded-lg bg-warn-tint px-3 py-2 text-warn">{p.blockedReason}</p>}
+
+          {adding && !p.blockedReason && (
+            <div className="space-y-3">
+              <div className="rounded-xl bg-page p-4">
+                <p className="font-medium text-ink">
+                  Today: {fmtMoney(p.chargeToday)} <Spec id="UX-06" />
+                </p>
+                <p className="mt-1 text-xs text-ink-2">
+                  {p.delta} seat{p.delta === 1 ? "" : "s"} × {fmtMoney(p.unit)} × {p.remainingDays} of {p.periodDays} days left in this period = {fmtMoney(p.proratedPerSeat)} per seat. Prorated so every seat shares the same renewal date.
+                </p>
+                <p className="mt-2 font-medium text-ink">
+                  Next renewal, {fmtDate(sub.currentPeriodEnd)}: {fmtMoney(p.nextRenewalAmount)} per {intervalWord(sub.interval)} for {target} seats
+                </p>
+                <p className="mt-1 text-xs text-muted">One Business subscription has one end date; added seats never start a separate billing cycle.</p>
+              </div>
+              {card ? (
+                <p className="text-xs text-ink-2">
+                  Charged to your default card, {brandLabel(card.brand)} ending {card.last4}. Your bank may ask you to confirm. <Spec id="UX-14" />
+                </p>
+              ) : (
+                <p className="rounded-lg bg-warn-tint px-3 py-2 text-warn">Add a payment method before adding seats.</p>
+              )}
+              <Checkbox checked={ack} onChange={setAck}>{consentText}</Checkbox>
+              {stage === "declined" && (
+                <p className="rounded-lg bg-danger-tint px-3 py-2 text-danger">
+                  Your bank declined the card. Your seats are unchanged. Try another card from Billing → Payment method.
+                </p>
+              )}
+            </div>
+          )}
+
+          {removing && !p.blockedReason && (
+            <div className="rounded-xl bg-page p-4">
+              <p className="font-medium text-ink">Nothing charged or refunded today</p>
+              <p className="mt-1 text-xs text-ink-2">
+                You keep {sub.seats} seats until {fmtDate(sub.currentPeriodEnd)}. From then you pay {fmtMoney(p.nextRenewalAmount)} per {intervalWord(sub.interval)} for {target} seats. Seats reduced mid-period are not refunded (no-refund policy); you can undo until the renewal date. <Spec id="Rule D" />
+              </p>
+            </div>
+          )}
+        </div>
+      </Modal>
+      {stage === "3ds" && card && (
+        <ThreeDSModal
+          amount={fmtMoney(p.chargeToday)}
+          last4={card.last4}
+          onApprove={finish}
           onCancel={() => setStage("form")}
         />
       )}

@@ -209,6 +209,11 @@ function ctx(s: AppState, extra: Partial<EmailCtx> = {}): EmailCtx {
       : "",
     oldPrice: "",
     newPrice: "",
+    seatsDelta: 0,
+    seatsTotal: sub?.seats ?? 1,
+    proratedAmount: "",
+    backupLast4: "",
+    defaultLast4: s.card?.last4 ?? "----",
   };
   return { ...base, ...extra };
 }
@@ -256,10 +261,13 @@ function behaviorToOutcome(b: CardBehavior): AttemptOutcome {
   return b === "success" ? "succeeded" : b;
 }
 
-function resolveOutcome(s: AppState): AttemptOutcome {
-  if (s.nextChargeOverride) return behaviorToOutcome(s.nextChargeOverride);
-  if (!s.card) return "hard_decline";
-  return behaviorToOutcome(s.card.behavior);
+/** Default card first, then backups in the order the user set them. */
+export function allCards(s: AppState): Card[] {
+  return [...(s.card ? [s.card] : []), ...(s.backupCards ?? [])];
+}
+
+export function cardId(c: Card): string {
+  return c.id ?? `${c.brand}-${c.last4}-${c.addedAt}`;
 }
 
 function declineCode(outcome: AttemptOutcome, card: Card | null): string | undefined {
@@ -299,29 +307,43 @@ function periodLabel(start: string, end: string): string {
   return `${fmtDate(start)} to ${fmtDate(end)}`;
 }
 
-/** Attempt the renewal charge for the subscription (off-session). */
+/** Attempt the renewal charge for the subscription (off-session). Tries the default card, then each backup card in order (R-19b). */
 function attemptRenewal(s: AppState, forced?: AttemptOutcome): AppState {
   const sub = s.subscription!;
   const target: Target = sub.scheduledChange
     ? { tier: sub.scheduledChange.tier, interval: sub.scheduledChange.interval, seats: sub.scheduledChange.seats }
-    : { tier: sub.tier, interval: sub.interval, seats: sub.seats };
+    : { tier: sub.tier, interval: sub.interval, seats: sub.pendingSeats ?? sub.seats };
   const amount = planPrice(target.tier, target.interval, target.seats);
-  const outcome: AttemptOutcome = forced ?? resolveOutcome(s);
-  const attemptNo = sub.attempts.filter((a) => a.periodStart === sub.currentPeriodEnd).length + 1;
-  const attempt = {
-    id: uid("pa"),
-    at: s.now,
-    periodStart: sub.currentPeriodEnd,
-    attemptNo,
-    amount,
-    outcome,
-    declineCode: declineCode(outcome, s.card),
-    onSession: false,
-  };
+  const cards = allCards(s);
+  const baseNo = sub.attempts.filter((a) => a.periodStart === sub.currentPeriodEnd).length;
+
+  // One attempt per card until one succeeds. 3DS stops the chain: the user has to act.
+  const attempts: NonNullable<Subscription["attempts"]> = [];
+  let outcome: AttemptOutcome = "hard_decline";
+  let usedCard: Card | null = null;
+  if (forced) {
+    outcome = forced;
+    usedCard = cards[0] ?? null;
+    attempts.push({ id: uid("pa"), at: s.now, periodStart: sub.currentPeriodEnd, attemptNo: baseNo + 1, amount, outcome, declineCode: declineCode(outcome, usedCard), onSession: true, cardLast4: usedCard?.last4 });
+  } else if (cards.length === 0) {
+    attempts.push({ id: uid("pa"), at: s.now, periodStart: sub.currentPeriodEnd, attemptNo: baseNo + 1, amount, outcome, declineCode: "no_payment_method", onSession: false });
+  } else {
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      const o: AttemptOutcome = i === 0 && s.nextChargeOverride ? behaviorToOutcome(s.nextChargeOverride) : behaviorToOutcome(c.behavior);
+      attempts.push({ id: uid("pa"), at: s.now, periodStart: sub.currentPeriodEnd, attemptNo: baseNo + attempts.length + 1, amount, outcome: o, declineCode: declineCode(o, c), onSession: false, cardLast4: c.last4 });
+      outcome = o;
+      usedCard = c;
+      if (o === "succeeded" || o === "requires_action") break;
+    }
+  }
+  const attempt = attempts[attempts.length - 1];
+  const usedBackup = outcome === "succeeded" && usedCard && s.card && usedCard.last4 !== s.card.last4;
+
   let next: AppState = {
     ...s,
     nextChargeOverride: null,
-    subscription: { ...sub, attempts: [attempt, ...sub.attempts] },
+    subscription: { ...sub, attempts: [...attempts.slice().reverse(), ...sub.attempts] },
   };
 
   // Ensure an open invoice exists for this period (created at first attempt).
@@ -343,17 +365,24 @@ function attemptRenewal(s: AppState, forced?: AttemptOutcome): AppState {
   }
 
   if (outcome === "succeeded") {
-    return applySuccessfulRenewal(next, target, invoiceId, sub.status === "past_due");
+    next = applySuccessfulRenewal(next, target, invoiceId, sub.status === "past_due");
+    if (usedBackup && usedCard) {
+      next = addHistory(next, "note", `Backup card ending ${usedCard.last4} was charged`, `Your default card ending ${s.card!.last4} was declined, so we used your backup card. Update your default card to avoid this next time.`);
+      next = sendEmail(next, "N-23", { backupLast4: usedCard.last4, defaultLast4: s.card!.last4, amount: fmtMoney(amount) }, `N-23:${sub.currentPeriodEnd}:${attempt.attemptNo}`);
+    }
+    return next;
   }
 
   const wasPastDue = sub.status === "past_due";
   const pastDueSince = wasPastDue ? sub.pastDueSince! : s.now;
   const graceEndsAt = wasPastDue ? sub.graceEndsAt! : addDays(startOfDayUTC(s.now), CONFIG.graceDays);
   const retryCount = wasPastDue ? sub.retryCount + 1 : 0;
-  const hard = outcome === "hard_decline";
+  // Hard-declined only when every card on file is unusable.
+  const hard = outcome !== "requires_action" && attempts.every((a) => a.outcome === "hard_decline");
   const nextOffset = CONFIG.retryOffsetsDays[retryCount];
   const nextRetryAt =
-    outcome === "soft_decline" && nextOffset !== undefined ? addDays(startOfDayUTC(pastDueSince), nextOffset) : null;
+    outcome !== "requires_action" && !hard && nextOffset !== undefined ? addDays(startOfDayUTC(pastDueSince), nextOffset) : null;
+  const triedLabel = attempts.length > 1 ? ` (${attempts.length} cards tried: ${attempts.map((a) => `${a.cardLast4} ${a.outcome.replace("_", " ")}`).join("; ")})` : "";
 
   next = {
     ...next,
@@ -376,16 +405,16 @@ function attemptRenewal(s: AppState, forced?: AttemptOutcome): AppState {
       `Renewal charge of ${fmtMoney(amount)} failed`,
       outcome === "requires_action"
         ? "Your bank asked for authentication. Grace period started."
-        : `${attempt.declineCode}. ${hard ? "No automatic retries on this card." : `Retrying on ${CONFIG.retryOffsetsDays.map((d) => fmtDate(addDays(startOfDayUTC(pastDueSince), d))).join(", ")}.`}`
+        : `${attempt.declineCode}${triedLabel}. ${hard ? "No automatic retries on these cards." : `Retrying on ${CONFIG.retryOffsetsDays.map((d) => fmtDate(addDays(startOfDayUTC(pastDueSince), d))).join(", ")}.`}`
     );
     next = sendEmail(
       next,
       outcome === "requires_action" ? "N-06" : "N-05",
-      { declineClass: hard ? (s.card ? "hard" : "no_card") : "soft", amount: fmtMoney(amount) },
+      { declineClass: hard ? (cards.length ? "hard" : "no_card") : "soft", amount: fmtMoney(amount), last4: usedCard?.last4 ?? s.card?.last4 ?? "----" },
       `${outcome === "requires_action" ? "N-06" : "N-05"}:${sub.currentPeriodEnd}`
     );
   } else {
-    next = addHistory(next, "renewal_failed", `Retry ${attemptNo} of ${fmtMoney(amount)} failed`, attempt.declineCode);
+    next = addHistory(next, "renewal_failed", `Retry ${attempt.attemptNo} of ${fmtMoney(amount)} failed`, `${attempt.declineCode}${triedLabel}`);
   }
   return next;
 }
@@ -416,9 +445,13 @@ function applySuccessfulRenewal(s: AppState, target: Target, invoiceId: string, 
       hardDeclined: false,
       pendingAuthAmount: null,
       renewalCount: sub.renewalCount + 1,
+      pendingSeats: null,
     },
   };
   next = setInvoiceStatus(next, invoiceId, "paid");
+  if (!changeApplied && sub.pendingSeats != null && sub.pendingSeats !== sub.seats) {
+    next = addHistory(next, "seats_changed", `Seats reduced to ${target.seats}`, `The scheduled seat reduction took effect with this renewal.`);
+  }
 
   if (changeApplied) {
     next = addHistory(
@@ -505,7 +538,7 @@ export function runSweep(s: AppState): AppState {
   // Reminders before the charge (not when cancelling)
   if (sub.status === "active" || sub.status === "change_scheduled") {
     const dl = daysBetween(today, sub.currentPeriodEnd);
-    const target = sub.scheduledChange ?? { tier: sub.tier, interval: sub.interval, seats: sub.seats };
+    const target = sub.scheduledChange ?? { tier: sub.tier, interval: sub.interval, seats: sub.pendingSeats ?? sub.seats };
     const amt = fmtMoney(planPrice(target.tier, target.interval, target.seats));
     if (sub.interval === "annual") {
       for (const d of CONFIG.reminderOffsetsAnnualDays) {
@@ -612,7 +645,7 @@ export function completeSubscription(s: AppState, input: CheckoutInput): AppStat
     createdAt: s.now,
     endedAt: null,
   };
-  let next: AppState = { ...s, subscription: sub, card: input.card, prepaid: null, nextChargeOverride: null };
+  let next: AppState = addCardState({ ...s, subscription: sub, prepaid: null, nextChargeOverride: null }, input.card, true);
   const r = addInvoice(next, {
     date: s.now,
     dueDate: s.now,
@@ -684,7 +717,9 @@ export function upgradeNow(s: AppState, input: UpgradeInput): AppState {
     endedAt: null,
   };
 
-  let next: AppState = { ...s, card, subscription: sub, nextChargeOverride: null };
+  let next: AppState = { ...s, subscription: sub, nextChargeOverride: null };
+  if (input.card && (!s.card || s.card.last4 !== input.card.last4)) next = addCardState(next, input.card, true);
+  else next = { ...next, card };
   // void any open invoice from a failed renewal that this upgrade supersedes
   next = { ...next, invoices: next.invoices.map((i) => (i.status === "open" ? { ...i, status: "void" } : i)) };
   const r = addInvoice(next, {
@@ -827,19 +862,195 @@ export function resumeSubscription(s: AppState, consentText: string): AppState {
   return toast(next, "Welcome back. Auto-renewal is on again.");
 }
 
-export function replaceCard(s: AppState, card: Card): AppState {
-  let next: AppState = { ...s, card };
-  next = addHistory(next, "card_updated", `Payment method updated`, `${brandLabel(card.brand)} ending ${card.last4}, expires ${String(card.expMonth).padStart(2, "0")}/${card.expYear}.`);
-  const sub = activeSubscription(next);
-  if (sub) next = sendEmail(next, "N-21", { last4: card.last4 });
-  if (sub && sub.status === "past_due") {
-    // immediate retry with the new card (R-22)
-    next = { ...next, subscription: { ...sub, hardDeclined: false } };
-    next = attemptRenewal(next);
-  } else {
-    next = toast(next, "Payment method updated.");
+/* ------------------------------------------------------------------ */
+/* Payment methods: default + backup cards (UX-17b)                     */
+/* ------------------------------------------------------------------ */
+function withId(card: Card): Card {
+  return card.id ? card : { ...card, id: uid("card") };
+}
+
+const sameCard = (a: Card, b: Card) => a.brand === b.brand && a.last4 === b.last4;
+
+function addCardState(s: AppState, cardIn: Card, makeDefault: boolean): AppState {
+  const card = withId(cardIn);
+  if (s.card && sameCard(s.card, card)) {
+    // Re-entering the default card (e.g. checkout with the same number): refresh expiry, keep id.
+    return { ...s, card: { ...s.card, expMonth: card.expMonth, expYear: card.expYear, behavior: card.behavior } };
   }
-  return next;
+  const backups = (s.backupCards ?? []).filter((c) => !sameCard(c, card));
+  if (makeDefault || !s.card) {
+    return { ...s, card, backupCards: [...(s.card ? [s.card] : []), ...backups] };
+  }
+  return { ...s, backupCards: [...backups, card] };
+}
+
+function retryIfPastDue(s: AppState): AppState {
+  const sub = activeSubscription(s);
+  if (sub && sub.status === "past_due") {
+    // immediate retry with the updated cards (R-22)
+    const next = { ...s, subscription: { ...sub, hardDeclined: false } };
+    return attemptRenewal(next);
+  }
+  return s;
+}
+
+/** Add a card. As default: the previous default becomes the first backup. As backup: appended to the fallback order. */
+export function addCard(s: AppState, card: Card, makeDefault: boolean): AppState {
+  const hadDefault = !!s.card;
+  let next = addCardState(s, card, makeDefault);
+  const isDefault = !hadDefault || makeDefault;
+  next = addHistory(
+    next,
+    isDefault ? "card_updated" : "card_added",
+    isDefault ? `Default payment method ${hadDefault ? "updated" : "added"}` : "Backup card added",
+    `${brandLabel(card.brand)} ending ${card.last4}, expires ${String(card.expMonth).padStart(2, "0")}/${card.expYear}.${isDefault && hadDefault ? ` Card ending ${s.card!.last4} kept as a backup.` : ""}`
+  );
+  const sub = activeSubscription(next);
+  if (sub && isDefault) next = sendEmail(next, "N-21", { last4: card.last4 });
+  if (sub && !isDefault) next = sendEmail(next, "N-24", { backupLast4: card.last4 });
+  if (sub && sub.status === "past_due") return retryIfPastDue(next);
+  return toast(next, isDefault ? "Default payment method updated." : `Backup card ending ${card.last4} added.`);
+}
+
+/** Kept for existing callers: the new card becomes the default. */
+export function replaceCard(s: AppState, card: Card): AppState {
+  return addCard(s, card, true);
+}
+
+export function setDefaultCard(s: AppState, id: string): AppState {
+  const target = allCards(s).find((c) => cardId(c) === id);
+  if (!target || (s.card && cardId(s.card) === id)) return s;
+  const oldDefault = s.card;
+  const backups = (s.backupCards ?? []).filter((c) => cardId(c) !== id);
+  let next: AppState = { ...s, card: target, backupCards: oldDefault ? [oldDefault, ...backups] : backups };
+  next = addHistory(next, "card_updated", `Default payment method changed`, `${brandLabel(target.brand)} ending ${target.last4} is now charged first${oldDefault ? `; card ending ${oldDefault.last4} is a backup` : ""}.`);
+  if (activeSubscription(next)) next = sendEmail(next, "N-21", { last4: target.last4 });
+  if (activeSubscription(next)?.status === "past_due") return retryIfPastDue(next);
+  return toast(next, `Card ending ${target.last4} is now your default.`);
+}
+
+export type RemoveCardResult = { ok: true; state: AppState } | { ok: false; reason: string };
+
+/** Remove a card. The default can only be removed when a backup exists (it is promoted) or there is no active subscription. */
+export function removeCard(s: AppState, id: string): RemoveCardResult {
+  const cards = allCards(s);
+  const target = cards.find((c) => cardId(c) === id);
+  if (!target) return { ok: false, reason: "Card not found." };
+  const isDefault = !!s.card && cardId(s.card) === id;
+  const backups = (s.backupCards ?? []).filter((c) => cardId(c) !== id);
+  const sub = activeSubscription(s);
+  if (isDefault && sub && backups.length === 0) {
+    return { ok: false, reason: "This is the only card on an active subscription. Add another card first, or cancel your subscription." };
+  }
+  let next: AppState = isDefault ? { ...s, card: backups[0] ?? null, backupCards: backups.slice(1) } : { ...s, backupCards: backups };
+  next = addHistory(
+    next,
+    "card_removed",
+    `${isDefault ? "Default" : "Backup"} card ending ${target.last4} removed`,
+    isDefault && backups[0] ? `Backup card ending ${backups[0].last4} is now the default.` : undefined
+  );
+  return { ok: true, state: toast(next, `Card ending ${target.last4} removed.`) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Business seats: add now (prorated), remove at period end             */
+/* ------------------------------------------------------------------ */
+export interface SeatPreview {
+  current: number;
+  target: number;
+  delta: number;
+  membersInUse: number;
+  minSeats: number;
+  remainingDays: number;
+  periodDays: number;
+  unit: number;
+  proratedPerSeat: number;
+  chargeToday: number;
+  nextRenewalAmount: number;
+  effectiveAt: string;
+  blockedReason: string | null;
+}
+
+/** One Business subscription has one end date: added seats are prorated to it, removed seats leave at it. */
+export function previewSeatChange(s: AppState, target: number): SeatPreview {
+  const sub = activeSubscription(s)!;
+  const today = startOfDayUTC(s.now);
+  const periodDays = Math.max(1, daysBetween(sub.currentPeriodStart, sub.currentPeriodEnd));
+  const remainingDays = Math.max(0, Math.min(periodDays, daysBetween(today, sub.currentPeriodEnd)));
+  const unit = unitPrice("business", sub.interval);
+  const proratedPerSeat = round2((unit * remainingDays) / periodDays);
+  const membersInUse = s.workspace.members.length;
+  const minSeats = Math.max(1, membersInUse);
+  const delta = target - sub.seats;
+  let blockedReason: string | null = null;
+  if (sub.scheduledChange) blockedReason = "You have a plan change scheduled. Undo it first to change seats.";
+  else if (sub.status === "cancel_scheduled") blockedReason = "Your subscription is cancelled. Resume it to change seats.";
+  else if (delta > 0 && sub.status === "past_due") blockedReason = "Update your payment method before adding seats.";
+  else if (target < minSeats) blockedReason = `${membersInUse} members are using seats. Remove members from the workspace before reducing below ${minSeats}.`;
+  return {
+    current: sub.seats,
+    target,
+    delta,
+    membersInUse,
+    minSeats,
+    remainingDays,
+    periodDays,
+    unit,
+    proratedPerSeat,
+    chargeToday: delta > 0 ? round2(proratedPerSeat * delta) : 0,
+    nextRenewalAmount: planPrice("business", sub.interval, target),
+    effectiveAt: sub.currentPeriodEnd,
+    blockedReason,
+  };
+}
+
+/** Add seats: charged today, prorated to the existing end date. Remove seats: scheduled for the end date, no refund. */
+export function changeSeats(s: AppState, target: number, consentText: string): AppState {
+  const sub = activeSubscription(s)!;
+  const p = previewSeatChange(s, target);
+  if (p.blockedReason || p.delta === 0) return s;
+  if (p.delta > 0) {
+    const desc = `${p.delta} additional seat${p.delta === 1 ? "" : "s"} · prorated ${p.remainingDays} of ${p.periodDays} days · ${periodLabel(startOfDayUTC(s.now), sub.currentPeriodEnd)}`;
+    let next: AppState = {
+      ...s,
+      nextChargeOverride: null,
+      subscription: {
+        ...sub,
+        seats: target,
+        pendingSeats: null,
+        attempts: [{ id: uid("pa"), at: s.now, periodStart: sub.currentPeriodStart, attemptNo: 1, amount: p.chargeToday, outcome: "succeeded", onSession: true, cardLast4: s.card?.last4 }, ...sub.attempts],
+      },
+    };
+    const r = addInvoice(next, { date: s.now, dueDate: s.now, amount: p.chargeToday, status: "paid", description: desc, periodStart: startOfDayUTC(s.now), periodEnd: sub.currentPeriodEnd });
+    next = r.state;
+    next = addConsent(next, { source: "seats", text: consentText, amount: p.nextRenewalAmount, interval: sub.interval });
+    next = addHistory(
+      next,
+      "seats_changed",
+      `Added ${p.delta} seat${p.delta === 1 ? "" : "s"} (now ${target})`,
+      `Charged ${fmtMoney(p.chargeToday)} today: ${p.delta} × ${fmtMoney(p.unit)} × ${p.remainingDays}/${p.periodDays} days. From ${fmtDate(sub.currentPeriodEnd)} the renewal is ${fmtMoney(p.nextRenewalAmount)} per ${intervalWord(sub.interval)}. Same end date.`
+    );
+    next = sendEmail(next, "N-22", { seatsDelta: p.delta, seatsTotal: target, proratedAmount: fmtMoney(p.chargeToday), newAmount: fmtMoney(p.nextRenewalAmount), nextDate: fmtDate(sub.currentPeriodEnd), invoiceNumber: r.invoice.number });
+    return toast(next, `${p.delta} seat${p.delta === 1 ? "" : "s"} added. Charged ${fmtMoney(p.chargeToday)} for the rest of this period.`);
+  }
+  // Reduction: nothing refunded; takes effect at the end of the period.
+  let next: AppState = { ...s, subscription: { ...sub, pendingSeats: target } };
+  next = addHistory(
+    next,
+    "seats_changed",
+    `Seat reduction to ${target} scheduled for ${fmtDate(sub.currentPeriodEnd)}`,
+    `You keep ${sub.seats} seats until then. Nothing is refunded. From ${fmtDate(sub.currentPeriodEnd)} the renewal is ${fmtMoney(p.nextRenewalAmount)} per ${intervalWord(sub.interval)}. You can undo until then.`
+  );
+  next = sendEmail(next, "N-22", { seatsDelta: p.delta, seatsTotal: target, proratedAmount: "", newAmount: fmtMoney(p.nextRenewalAmount), nextDate: fmtDate(sub.currentPeriodEnd), effectiveDate: fmtDate(sub.currentPeriodEnd) });
+  return toast(next, `Seats change to ${target} on ${fmtDate(sub.currentPeriodEnd)}. You can undo until then.`, "info");
+}
+
+export function undoSeatChange(s: AppState): AppState {
+  const sub = activeSubscription(s);
+  if (!sub || sub.pendingSeats == null) return s;
+  let next: AppState = { ...s, subscription: { ...sub, pendingSeats: null } };
+  next = addHistory(next, "change_undone", `Kept ${sub.seats} seats`, "Scheduled seat reduction removed.");
+  return toast(next, `You are keeping ${sub.seats} seats.`);
 }
 
 /** User completed 3DS from the N-06 link (R-18). */
@@ -877,7 +1088,7 @@ export function optInAutoRenew(s: AppState, card: Card, consentText: string, int
     createdAt: s.now,
     endedAt: null,
   };
-  let next: AppState = { ...s, subscription: sub, card, prepaid: null };
+  let next: AppState = addCardState({ ...s, subscription: sub, prepaid: null }, card, true);
   next = addConsent(next, { source: "opt_in", text: consentText, amount: planPrice(tier, interval, seats), interval });
   next = addHistory(
     next,

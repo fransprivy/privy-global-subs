@@ -6,6 +6,12 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
+## Seats and backup cards (added 11 Sep 2026)
+
+- **Seats (Business):** Billing → Manage seats. Adding seats charges a prorated amount today (`seats × unit × remaining days / period days`) and keeps the existing renewal date, so one Business subscription always has one end date. Reducing seats is scheduled for the renewal date (no refund) and can be undone from the banner or the email. You cannot reduce below the number of members in the workspace. Engine: `previewSeatChange`, `changeSeats`, `undoSeatChange`; UI: `SeatsModal` (M-09); email N-22.
+- **Backup cards:** Billing → Payment methods → Manage. One default card plus any number of backups, in order. A renewal charges the default; if it is declined the sweep tries each backup in the same run before starting the 14-day grace (R-19b). Set default, add, remove (the only card on an active subscription cannot be removed; removing the default promotes the first backup). Saving any card during grace retries immediately. Engine: `addCard`, `setDefaultCard`, `removeCard`, `allCards`; emails N-21, N-23 (backup charged), N-24 (backup added).
+- Scenario **Business owner** now has 8 seats (6 in use) and a Mastercard backup; the test guide walks through both flows. Use the Prototype panel's "Soft decline" override plus "Jump to next renewal" to watch the backup card catch the declined default.
+
 ## Test guide (in-app)
 
 Every scenario has a step-by-step walkthrough docked on the right of the app: what to click, what you should see, and which spec items (UX-xx, M-xx, R-xx, N-xx) each step proves. Steps tick themselves off from the live state where possible; the rest can be ticked by hand. The footer of the guide has the simulated date, the "Jump to next event" button, the test-card cheat sheet and the Emails link, so you never have to leave the flow to check the README.

@@ -38,6 +38,7 @@ function Billing() {
     if (a === "cancel" && sub && sub.status !== "cancel_scheduled") flows.open({ type: "cancel" });
     if (a === "resume" && sub?.status === "cancel_scheduled") flows.open({ type: "resume" });
     if (a === "undo" && sub?.scheduledChange) api.undoScheduledChange();
+    if (a === "undo-seats" && sub?.pendingSeats != null) api.undoSeatChange();
     if (a === "authenticate" && sub?.status === "past_due") flows.open({ type: "authenticate" });
     if (a === "optin" && prepaid) flows.open({ type: "optin" });
     if (a === "card") flows.open({ type: "replaceCard" });
@@ -60,7 +61,7 @@ function Billing() {
             <UsageTile
               icon={<IconUsers size={20} />}
               title="Team members"
-              value={tier === "business" && sub ? `${s.workspace.members.length} of ${sub.seats} seats used` : tier === "enterprise" ? "Custom" : "1 (you) · Business adds seats"}
+              value={tier === "business" && sub ? `${s.workspace.members.length} of ${sub.seats} seats used${sub.pendingSeats != null ? ` · ${sub.pendingSeats} from ${fmtDate(sub.currentPeriodEnd)}` : ""}` : tier === "enterprise" ? "Custom" : "1 (you) · Business adds seats"}
             />
           </div>
         </section>
@@ -130,9 +131,16 @@ function SubscriptionCard() {
       status = <StatusPill tone="success">Active</StatusPill>;
       footer = (
         <span className="text-ink-2">
-          Renews on <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> for <strong className="text-ink">{fmtMoney(amount)}</strong> on {cardText}
-          {sub.tier === "business" ? ` · ${sub.seats} seat${sub.seats > 1 ? "s" : ""}` : ""}
+          Renews on <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> for <strong className="text-ink">{fmtMoney(sub.pendingSeats != null ? planPrice(sub.tier, sub.interval, sub.pendingSeats) : amount)}</strong> on {cardText}
+          {sub.tier === "business" ? ` · ${sub.seats} seat${sub.seats > 1 ? "s" : ""}${sub.pendingSeats != null ? ` until then, ${sub.pendingSeats} after` : ""}` : ""}
         </span>
+      );
+    }
+    if (sub.tier === "business" && sub.status !== "cancel_scheduled") {
+      actions.push(
+        <button key="seats" className="btn-secondary" onClick={() => flows.open({ type: "seats" })}>
+          Manage seats{sub.pendingSeats != null ? ` (${sub.seats} → ${sub.pendingSeats} on ${fmtDate(sub.currentPeriodEnd)})` : ""}
+        </button>
       );
     }
     if (sub.status !== "cancel_scheduled") {
@@ -191,10 +199,11 @@ function PaymentMethodCard() {
   const flows = useFlows();
   const sub = activeSubscription(s);
   const expiring = sub && s.card && cardExpiresBefore(s.card, sub.currentPeriodEnd);
+  const backups = s.backupCards ?? [];
   return (
     <section>
       <h2 className="mb-3 text-[17px] font-medium text-ink">
-        Payment method <Spec id="UX-17" />
+        Payment methods <Spec id="UX-17" />
       </h2>
       <div className="card flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center">
         {s.card ? (
@@ -202,11 +211,12 @@ function PaymentMethodCard() {
             <CardBrandBadge brand={s.card.brand} />
             <div className="flex-1">
               <p className="text-[15px] font-medium text-ink">
-                {brandLabel(s.card.brand)} ending {s.card.last4}
+                {brandLabel(s.card.brand)} ending {s.card.last4} <span className="ml-1 text-xs font-normal text-muted">Default</span>
               </p>
               <p className="text-sm text-muted">
                 Expires {String(s.card.expMonth).padStart(2, "0")}/{s.card.expYear}
                 {expiring && <span className="ml-2 font-medium text-warn">Expires before your next renewal</span>}
+                {backups.length > 0 ? ` · ${backups.length} backup card${backups.length > 1 ? "s" : ""} (ending ${backups.map((b) => b.last4).join(", ")})` : " · no backup card"}
               </p>
             </div>
           </>
@@ -216,9 +226,16 @@ function PaymentMethodCard() {
           </div>
         )}
         <div className="flex gap-2">
-          <button className="btn-secondary" onClick={() => flows.open({ type: "replaceCard" })}>
-            {s.card ? "Replace card" : "Add card"}
-          </button>
+          {s.card && (
+            <button className="btn-secondary" onClick={() => flows.open({ type: "addCard", makeDefault: false })}>
+              Add backup card
+            </button>
+          )}
+          {!s.card && (
+            <button className="btn-secondary" onClick={() => flows.open({ type: "addCard", makeDefault: true })}>
+              Add card
+            </button>
+          )}
           <Link href="/settings/billing/payment-method" className="btn-ghost">
             Manage
           </Link>

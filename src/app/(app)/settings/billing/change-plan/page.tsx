@@ -87,7 +87,7 @@ export default function ChangePlanPage() {
               { value: "annual", label: "Yearly" },
             ]}
           />
-          <span className="chip absolute -bottom-3 left-1/2 -translate-x-1/2 whitespace-nowrap bg-gold text-[10px] text-white">★ SAVE UP TO 14%</span>
+          <span className="chip pointer-events-none absolute -bottom-3.5 left-[52%] whitespace-nowrap bg-gold px-2.5 text-[10px] text-white shadow-sm">★ SAVE UP TO 14%</span>
         </div>
 
         <div className="mt-8">
