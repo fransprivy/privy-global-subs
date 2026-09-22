@@ -43,8 +43,8 @@ export const GUIDES: Record<string, Guide> = {
       {
         id: "free-paywall",
         title: "Hit the Free limit and see the paywall",
-        do: "Home → press 'Send an envelope' 4 times (4 sends left), then once more. Or use 'Use up envelope quota' in the Prototype panel.",
-        expect: "The counter in the top bar drops to '0 sends left' in red and 'Upgrade plan' appears. The 5th press opens the paywall (M-17): reset date, Personal (50/month) and Business (unlimited) side by side, 'Not now'. Picking a plan goes straight to checkout.",
+        do: "Home → 'Send an envelope' → pick a file (the drop zone) 4 times (4 sends left), then open it once more. Or use 'Use up envelope quota' in the Prototype panel.",
+        expect: "The counter drops to '0 sends left' in red and 'Upgrade plan' appears. The upload screen now opens with the paywall on top: 'Your plan does not go this far', the reset date, Personal and Business options, 'Not now' / 'Upgrade plan'. Picking a plan goes straight to checkout.",
         href: "/home",
         refs: ["M-17", "UX-27", "UX-28"],
         check: (s) => s.usage.envelopesSent >= 5,
@@ -476,8 +476,8 @@ export const GUIDES: Record<string, Guide> = {
       {
         id: "bmp-paywall",
         title: "Use the last 3 envelopes",
-        do: "Home → 'Send an envelope' three times, then once more.",
-        expect: "'0 sends left' in red, 'Upgrade plan' appears, and the 4th press opens the paywall with only Business offered (you already have Personal) and the reset date Oct 10.",
+        do: "Home → 'Send an envelope' → pick a file, three times; then open it once more.",
+        expect: "'0 sends left' in red, 'Upgrade plan' appears, and the upload screen shows the paywall with only Business offered (you already have Personal) and the reset date Oct 10.",
         href: "/home",
         refs: ["M-17", "UX-28"],
         check: (s) => s.usage.envelopesSent >= 50,

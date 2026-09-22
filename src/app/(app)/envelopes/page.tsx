@@ -9,7 +9,7 @@ import { useAppState } from "@/lib/store";
 
 /** Envelope list per workspace. In an expired workspace everything is read-only: view and download only (R-72). */
 export default function EnvelopesPage() {
-  const { s, api } = useAppState();
+  const { s } = useAppState();
   const flows = useFlows();
   const ws = workspaceView(s);
   const docs = ws.documents;
@@ -35,9 +35,7 @@ export default function EnvelopesPage() {
             className="btn-primary"
             disabled={ws.readOnly}
             title={ws.readOnly ? "Read-only workspace" : undefined}
-            onClick={() => {
-              if (!api.sendEnvelope()) flows.open({ type: "paywall" });
-            }}
+            onClick={() => flows.open({ type: "upload" })}
           >
             {ws.readOnly ? <IconLock size={18} /> : <IconEnvelope size={18} />} New envelope
           </button>

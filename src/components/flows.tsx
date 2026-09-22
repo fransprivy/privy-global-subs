@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ANNUAL_SAVINGS, TIER_LABEL, regionMeta } from "@/lib/catalog";
 import {
   activeSubscription,
@@ -50,6 +50,7 @@ export type Flow =
   | { type: "invite" }
   | { type: "leave"; id: string }
   | { type: "paywall" }
+  | { type: "upload" }
   | { type: "transfer"; memberId?: string }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
@@ -108,6 +109,8 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <LeaveWorkspaceModal close={close} id={flow.id} />;
     case "paywall":
       return <PaywallModal close={close} />;
+    case "upload":
+      return <UploadDocumentScreen close={close} />;
     case "transfer":
       return <TransferOwnershipModal close={close} memberId={flow.memberId} />;
     case "authenticate":
@@ -1176,10 +1179,140 @@ function InviteModal({ close }: { close: () => void }) {
   );
 }
 
-/** M-17: quota exhausted paywall. Opens when Send / New envelope is pressed with 0 sends left (UX-28). */
+/**
+ * Upload a document (the first step of sending an envelope), mirrored from production.
+ * When the workspace quota is exhausted the paywall (M-17) opens on top of it (UX-28).
+ */
+function UploadDocumentScreen({ close }: { close: () => void }) {
+  const { s, api } = useAppState();
+  const ws = workspaceView(s);
+  const left = ws.envelopeLimit === null ? null : Math.max(0, ws.envelopeLimit - ws.usage.envelopesSent);
+  const blocked = left === 0;
+  const [paywall, setPaywall] = useState(blocked);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !paywall && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close, paywall]);
+
+  function pickFile() {
+    if (blocked) {
+      setPaywall(true);
+      return;
+    }
+    api.sendEnvelope();
+    close();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[65] flex flex-col bg-page">
+      <header className="flex h-[64px] items-center justify-between border-b border-line bg-white px-4 sm:px-6">
+        <p className="flex items-center gap-2 text-[17px] font-medium text-ink">
+          <IconCloudUp size={20} className="text-ink-2" /> Upload a document
+        </p>
+        <div className="flex items-center gap-4">
+          <div className="hidden items-center gap-3 text-right sm:flex">
+            <div>
+              <p className="text-[11px] text-muted">Sending as</p>
+              <p className="text-sm font-semibold leading-tight text-ink">{ws.name}</p>
+              <p className="text-[11px] text-muted">{ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}</p>
+            </div>
+          </div>
+          <button className="rounded-md p-2 text-ink-2 hover:bg-page" onClick={close} aria-label="Close upload">
+            <IconCloseX />
+          </button>
+        </div>
+      </header>
+      <div className="mx-auto w-full max-w-[780px] flex-1 overflow-y-auto px-4 py-8">
+        <p className="text-[17px] font-medium text-ink">Let&apos;s start with select your file(s)</p>
+        <button
+          type="button"
+          onClick={pickFile}
+          className={`mt-4 flex w-full flex-col items-center rounded-lg border border-dashed px-6 py-12 text-center ${blocked ? "cursor-not-allowed border-line-2 bg-[#f7f7f7] text-muted" : "border-[#2f6fb5] bg-white hover:bg-[#f4f8fc]"}`}
+          aria-disabled={blocked}
+        >
+          <IconCloudUp size={40} className={blocked ? "text-muted-2" : "text-[#2f6fb5]"} />
+          <p className="mt-3 text-[15px] text-ink">
+            Drag your document here or click <span className="font-medium text-[#2f6fb5] underline">browse</span>
+          </p>
+          <p className="mt-1 text-xs text-muted">PDF, DOCX, PPTX, XLSX, JPG, PNG up to 25MB</p>
+          {blocked && <p className="mt-3 text-xs font-medium text-danger">You have used every envelope your plan includes this month.</p>}
+          {!blocked && left !== null && <p className="mt-3 text-xs text-muted">{left} of {ws.envelopeLimit} envelopes left this month</p>}
+        </button>
+        <div className="mt-10 border-t border-line pt-8">
+          <p className="text-[17px] font-medium text-ink">Start from a template</p>
+          <div className="mt-6 flex flex-col items-center text-center">
+            <span className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-[#e6eef8] text-[#2f6fb5]">
+              <IconHandover size={28} />
+            </span>
+            <p className="mt-3 text-[15px] font-medium text-ink">You have no template</p>
+            <p className="text-sm text-muted">Create reusable templates to send envelope faster</p>
+            <button className="btn-secondary mt-4" disabled={blocked}>
+              Create new <IconPlus size={16} />
+            </button>
+          </div>
+        </div>
+        <p className="mt-8 text-center text-xs text-muted">Prototype: choosing a file counts one envelope against the workspace quota. <Spec id="UX-28" /></p>
+      </div>
+      {paywall && <PaywallModal close={() => setPaywall(false)} />}
+    </div>
+  );
+}
+
+function IconCloudUp({ size = 20, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M7 18a4 4 0 0 1-.6-7.95A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 7.97" />
+      <path d="M12 12v9" />
+      <path d="M8.5 15.5 12 12l3.5 3.5" />
+    </svg>
+  );
+}
+function IconCloseX() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+/** Original illustration for the paywall: a signed page, a pen and a globe (no brand assets). */
+function PaywallArt() {
+  return (
+    <svg viewBox="0 0 400 150" className="h-[150px] w-full" aria-hidden="true">
+      <defs>
+        <linearGradient id="pw-sky" x1="0" x2="1">
+          <stop offset="0" stopColor="#eaf3fb" />
+          <stop offset="1" stopColor="#d3e6f6" />
+        </linearGradient>
+      </defs>
+      <rect width="400" height="150" fill="url(#pw-sky)" />
+      <circle cx="330" cy="30" r="44" fill="#bcd6ee" />
+      <path d="M286 30h88M330 -14v88M300 8c18 12 42 12 60 0M300 52c18-12 42-12 60 0" stroke="#ffffff" strokeWidth="2.5" fill="none" opacity=".8" />
+      <g transform="rotate(-8 150 90)">
+        <rect x="95" y="38" width="115" height="100" rx="8" fill="#ffffff" stroke="#c9d8e8" />
+        <rect x="108" y="52" width="60" height="6" rx="3" fill="#dbe6f1" />
+        <rect x="108" y="66" width="86" height="6" rx="3" fill="#e6eef6" />
+        <rect x="108" y="80" width="72" height="6" rx="3" fill="#e6eef6" />
+        <path d="M110 118c10-16 16-18 18-6s6 12 14-4 14-10 20 2 12 6 22-6" stroke="#1d3557" strokeWidth="3" fill="none" strokeLinecap="round" />
+        <path d="M108 128h90" stroke="#1d3557" strokeWidth="2" strokeLinecap="round" />
+        <path d="M100 148l16-14M108 148l16-14" stroke="#1d3557" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      <g transform="rotate(35 250 95)">
+        <rect x="236" y="40" width="22" height="90" rx="6" fill="#c0392b" />
+        <rect x="236" y="40" width="22" height="18" rx="6" fill="#8b1d3b" />
+        <path d="M236 130l11 16 11-16z" fill="#f2c9a6" />
+        <path d="M244 140l3 6 3-6z" fill="#1d3557" />
+      </g>
+    </svg>
+  );
+}
+
+/** M-17: quota exhausted paywall, styled after production ("Your plan does not go this far"). */
 function PaywallModal({ close }: { close: () => void }) {
   const { s } = useAppState();
   const flows = useFlows();
+  const router = useRouter();
   const plan = individualPlan(s);
   const ws = workspaceView(s);
   const limit = ws.envelopeLimit ?? 0;
@@ -1187,51 +1320,64 @@ function PaywallModal({ close }: { close: () => void }) {
   const region = regionMeta(regionOf(s));
   const personalPrice = fmtMoney(planPrice("personal", "monthly", 1));
   const businessPrice = fmtMoney(planPrice("business", "monthly", 1));
-  const go = (tier: PaidTier) => {
+  const planLabel = plan === "free" ? "Free" : "Personal";
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+  function upgrade(tier?: PaidTier) {
     close();
-    flows.open({ type: "plan", tier, interval: "monthly" });
-  };
+    if (tier) flows.open({ type: "plan", tier, interval: "monthly" });
+    else router.push(plan === "free" ? "/plans" : "/settings/billing/change-plan");
+  }
   return (
-    <Modal open onClose={close} title={`You have used all ${limit} envelopes this month`} spec="M-17" width="max-w-2xl">
-      <div className="space-y-4 text-sm text-ink-2">
-        <p>
-          Your {plan === "free" ? "Free" : "Personal"} plan includes {limit} envelopes a month. The counter resets on <strong className="text-ink">{fmtDate(reset)}</strong>. To keep sending today, upgrade; the new limit applies immediately.
-        </p>
-        <div className={`grid gap-3 ${plan === "free" ? "sm:grid-cols-2" : ""}`}>
-          {plan === "free" && (
-            <button type="button" onClick={() => go("personal")} className="rounded-2xl border border-line-2 p-5 text-left hover:border-ink">
-              <p className="text-[17px] font-semibold text-ink">Personal</p>
-              <p className="mt-1 font-display text-2xl font-semibold text-ink">
-                {personalPrice} <span className="text-sm font-normal text-muted">/ month · {region.taxNote}</span>
-              </p>
-              <ul className="mt-3 space-y-1">
-                <li>50 envelopes a month (600 a year on the yearly plan)</li>
-                <li>Unlimited templates, reports and analytics</li>
-              </ul>
-              <span className="btn-secondary mt-4 w-full">Upgrade to Personal</span>
-            </button>
-          )}
-          <button type="button" onClick={() => go("business")} className="relative rounded-2xl border border-maroon p-5 text-left hover:bg-brand-tint/20">
-            <span className="absolute -top-px right-0 rounded-bl-lg rounded-tr-[15px] bg-maroon px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">Unlimited</span>
-            <p className="text-[17px] font-semibold text-ink">Business</p>
-            <p className="mt-1 font-display text-2xl font-semibold text-ink">
-              {businessPrice} <span className="text-sm font-normal text-muted">/ seat / month · {region.taxNote}</span>
-            </p>
-            <ul className="mt-3 space-y-1">
-              <li>Unlimited envelopes, here and in a new team workspace</li>
-              <li>Invite your team, delegation, automation, e-Seal, branding</li>
-            </ul>
-            <span className="btn-primary mt-4 w-full">Upgrade to Business</span>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div className="animate-fade w-full max-w-[400px] overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true" aria-label="Your plan does not go this far">
+        <div className="relative">
+          <PaywallArt />
+          <button className="absolute right-3 top-3 rounded-md bg-white/70 p-1 text-ink-2 hover:bg-white" onClick={close} aria-label="Close">
+            <IconCloseX />
           </button>
+          <Spec id="M-17" className="absolute left-3 top-3" />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-          <span>Or wait until {fmtDate(reset)}: your documents and drafts are kept, nothing is lost.</span>
-          <button className="btn-ghost !py-1.5 text-xs" onClick={close}>
-            Not now
-          </button>
+        <div className="px-6 pb-6 pt-5 text-center">
+          <h2 className="font-display text-[19px] font-semibold text-ink">Your plan does not go this far</h2>
+          <p className="mt-2 text-sm text-ink-2">
+            You have used all <strong className="text-ink">{limit} envelopes</strong> your {planLabel} plan includes this month. Your counter resets on <strong className="text-ink">{fmtDate(reset)}</strong>. Upgrade to send more today.
+          </p>
+          <div className="mt-4 space-y-2 text-left">
+            {plan === "free" && (
+              <button type="button" onClick={() => upgrade("personal")} className="flex w-full items-center justify-between rounded-xl border border-line-2 px-4 py-3 hover:border-ink hover:bg-page">
+                <span>
+                  <span className="block text-[15px] font-medium text-ink">Personal</span>
+                  <span className="block text-xs text-muted">50 envelopes a month · {personalPrice}/month · {region.taxNote}</span>
+                </span>
+                <IconArrowRight size={16} className="text-ink-2" />
+              </button>
+            )}
+            <button type="button" onClick={() => upgrade("business")} className="flex w-full items-center justify-between rounded-xl border border-maroon bg-brand-tint/20 px-4 py-3 hover:bg-brand-tint/40">
+              <span>
+                <span className="flex items-center gap-2 text-[15px] font-medium text-ink">
+                  Business <span className="chip bg-maroon text-white">Unlimited</span>
+                </span>
+                <span className="block text-xs text-muted">Unlimited envelopes + a team workspace · {businessPrice}/seat/month · {region.taxNote}</span>
+              </span>
+              <IconArrowRight size={16} className="text-ink-2" />
+            </button>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-3">
+            <button className="btn-ghost text-ink-2" onClick={close}>
+              Not now
+            </button>
+            <button className="btn-primary" onClick={() => upgrade()}>
+              Upgrade plan
+            </button>
+          </div>
+          <p className="mt-3 text-[11px] text-muted">Nothing is lost while you wait: drafts and received envelopes stay available.</p>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 

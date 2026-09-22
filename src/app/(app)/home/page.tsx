@@ -9,7 +9,7 @@ import { workspaceView } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
 
 export default function HomePage() {
-  const { s, api } = useAppState();
+  const { s } = useAppState();
   const flows = useFlows();
   const ws = workspaceView(s);
   const [filter, setFilter] = useState<"all" | "yours" | "others">("all");
@@ -29,9 +29,7 @@ export default function HomePage() {
               className="mt-8 flex items-center gap-3 rounded-lg border border-white/70 px-6 py-4 text-lg font-medium hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={ws.readOnly}
               title={ws.readOnly ? "This workspace is read-only until the plan is reactivated." : undefined}
-              onClick={() => {
-                if (!api.sendEnvelope()) flows.open({ type: "paywall" });
-              }}
+              onClick={() => flows.open({ type: "upload" })}
             >
               {ws.readOnly ? <IconLock size={22} /> : <IconEnvelope size={22} />} Send an envelope <IconChevronDown size={18} />
             </button>
