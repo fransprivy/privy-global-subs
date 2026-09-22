@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { workspaceView } from "@/lib/engine";
 import {
   IconActivity,
   IconBell,
@@ -42,6 +43,7 @@ const WORKSPACE = [
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { s } = useAppState();
+  const ws = workspaceView(s);
   const Item = ({ href, label, icon: Icon, pink }: { href: string; label: string; icon: typeof IconUser; pink?: boolean }) => {
     const active = path === href || (href !== "/settings/billing" && path.startsWith(href)) || (href === "/settings/billing" && path.startsWith("/settings/billing"));
     return (
@@ -70,7 +72,10 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         </nav>
         <div className="hidden px-6 pt-6 lg:block">
           <p className="text-sm font-semibold text-ink-2">Current Workspace</p>
-          <p className="text-sm text-ink">{s.workspace.name}</p>
+          <p className="text-sm text-ink">
+            {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}
+            {ws.status === "expired" ? " (expired)" : ""}
+          </p>
         </div>
         <nav className="hidden flex-col gap-1 px-4 pt-4 lg:flex">
           {WORKSPACE.map((i) => (

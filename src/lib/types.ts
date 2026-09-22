@@ -116,6 +116,8 @@ export interface Bill {
   interval: Interval;
   seats: number;
   amount: number;
+  /** First Business purchase: name of the workspace to create when the payment lands. */
+  workspaceName?: string;
   /** Period the payment buys. For renewals: starts at the current expiry. */
   periodStart: string;
   periodEnd: string;
@@ -168,6 +170,12 @@ export type HistoryType =
   | "payment_pending"
   | "payment_expired"
   | "region_changed"
+  | "workspace_created"
+  | "workspace_expired"
+  | "workspace_reactivated"
+  | "handover"
+  | "member_invited"
+  | "member_removed"
   | "note";
 
 export interface HistoryEvent {
@@ -205,6 +213,14 @@ export interface Member {
   role: "owner" | "admin" | "member";
 }
 
+/**
+ * "none": the user has never bought Business (no Business workspace exists).
+ * "active": the owned Business workspace is usable.
+ * "expired": the Business plan ended; the workspace is read-only (view and download only) until reactivated (R-72).
+ */
+export type WorkspaceStatus = "none" | "active" | "expired";
+
+/** The Business workspace this user OWNS. There is at most one per user (R-70). */
 export interface Workspace {
   name: string;
   members: Member[];
@@ -213,7 +229,33 @@ export interface Workspace {
   eSeal: boolean;
   branding: boolean;
   trustedDomain: string | null;
+  /** Legacy flag kept for older saved states; `status` is authoritative. */
   closed: boolean;
+  status?: WorkspaceStatus;
+  createdAt?: string | null;
+  expiredAt?: string | null;
+  /** Envelopes that live in this workspace. */
+  documents?: Task[];
+  /** Set when the owner handed the workspace documents over to their Individual workspace. */
+  handedOverAt?: string | null;
+  usage?: Usage;
+}
+
+/** A Business or Enterprise workspace the user is a MEMBER of (bought by someone else). Never affects the user's own plan (R-71). */
+export interface OtherWorkspace {
+  id: string;
+  name: string;
+  kind: "business" | "enterprise";
+  ownerName: string;
+  status: "active" | "expired";
+  expiredAt?: string | null;
+  /** Enterprise: contract end shown on the billing page. */
+  contractEnd?: string | null;
+  initials: string;
+  color: string;
+  documents: Task[];
+  usage: Usage;
+  memberCount: number;
 }
 
 export interface Usage {
@@ -227,7 +269,7 @@ export interface Task {
   title: string;
   from: string;
   assignedAgo: string;
-  status: "waiting_for_you" | "waiting_for_others";
+  status: "waiting_for_you" | "waiting_for_others" | "completed";
 }
 
 export interface UIState {
@@ -236,6 +278,8 @@ export interface UIState {
   /** In-flow test guide (right-hand panel). Optional so states saved before it existed still load. */
   guideOpen?: boolean;
   checkedSteps?: string[];
+  /** Shown once after the Business workspace is created (M-15). */
+  welcomeBusiness?: boolean;
   toast: { id: string; text: string; tone: "success" | "info" | "warn" } | null;
 }
 
@@ -265,7 +309,13 @@ export interface AppState {
   consents: ConsentRecord[];
   sentKeys: string[];
   workspace: Workspace;
+  /** Workspaces the user was invited to. */
+  otherWorkspaces?: OtherWorkspace[];
+  /** "individual" | "business" (the owned one) | id of an OtherWorkspace. */
+  activeWorkspace?: string;
+  /** Individual workspace usage. */
   usage: Usage;
+  /** Individual workspace envelopes (the home page task list). */
   tasks: Task[];
   nextChargeOverride: CardBehavior | null;
   optInDismissed: boolean;

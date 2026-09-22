@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { ANNUAL_SAVINGS, TIER_LABEL } from "@/lib/catalog";
 import {
@@ -9,6 +10,7 @@ import {
   cardId,
   classifyChange,
   CONFIG,
+  currentSeats,
   downgradeLosses,
   isIndonesia,
   isOneTimeUser,
@@ -41,6 +43,7 @@ export type Flow =
   | { type: "payBill"; billId: string }
   | { type: "paymentDetail"; billId: string }
   | { type: "convert" }
+  | { type: "invite" }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
   | { type: "handover" };
@@ -65,6 +68,7 @@ export function FlowProvider({ children }: { children: React.ReactNode }) {
     <FlowCtx.Provider value={api}>
       {children}
       {flow && <FlowHost flow={flow} close={() => setFlow(null)} />}
+      {!flow && <WelcomeBusinessModal />}
     </FlowCtx.Provider>
   );
 }
@@ -91,6 +95,8 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <PaymentDetailDrawer billId={flow.billId} close={close} />;
     case "convert":
       return <ConvertModal close={close} />;
+    case "invite":
+      return <InviteModal close={close} />;
     case "authenticate":
       return <AuthenticateFlow close={close} />;
     case "optin":
@@ -998,35 +1004,170 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
 
 /* Handover: reuses the existing Document Handover feature (stub in the prototype). */
 function HandoverModal({ close }: { close: () => void }) {
-  const { s } = useAppState();
+  const { s, api } = useAppState();
+  const docs = s.workspace.documents ?? [];
   const others = s.workspace.members.filter((m) => m.role !== "owner");
   const [done, setDone] = useState(false);
   return (
     <Modal
       open
       onClose={close}
-      title="Hand over team documents"
+      title="Hand over workspace documents"
       spec="UX-08"
       footer={
         <>
-          <button className="btn-secondary" onClick={close}>Close</button>
-          {!done && <button className="btn-primary" onClick={() => setDone(true)}>Hand over to me</button>}
+          <button className="btn-secondary" onClick={close}>
+            Close
+          </button>
+          {!done && docs.length > 0 && (
+            <button
+              className="btn-primary"
+              onClick={() => {
+                api.handoverDocuments();
+                setDone(true);
+              }}
+            >
+              Hand over {docs.length} document{docs.length === 1 ? "" : "s"} to me
+            </button>
+          )}
         </>
       }
     >
       {done ? (
-        <p className="flex items-center gap-2 text-success"><IconCheckCircle size={18} /> Documents from {others.length} members are now in your account. Nothing will be lost when the workspace closes.</p>
+        <p className="flex items-center gap-2 text-success">
+          <IconCheckCircle size={18} /> Done. The documents are now in your Individual workspace and stay there whatever happens to {s.workspace.name}.
+        </p>
+      ) : docs.length === 0 ? (
+        <p className="text-sm text-ink-2">There are no documents left in {s.workspace.name}.</p>
       ) : (
-        <div className="space-y-2 text-sm">
-          <p>This is the existing Document Handover flow. Choose who receives the documents owned by members who will lose access:</p>
-          <ul className="list-disc pl-5 text-ink-2">
-            {others.map((m) => (
-              <li key={m.id}>{m.name} · {m.email}</li>
+        <div className="space-y-3 text-sm">
+          <p>
+            Move every envelope in <strong className="text-ink">{s.workspace.name}</strong> to your Individual workspace ({s.user.name}). Use this before the workspace expires, or any time while it is read-only, so nothing depends on the Business plan. <Spec id="R-79" />
+          </p>
+          <ul className="max-h-48 list-disc overflow-y-auto pl-5 text-ink-2">
+            {docs.map((d) => (
+              <li key={d.id}>
+                {d.title} <span className="text-muted">· from {d.from}</span>
+              </li>
             ))}
           </ul>
-          <p className="text-xs text-muted">Prototype: this step is a placeholder for the production Handover feature.</p>
+          {others.length > 0 && (
+            <p className="text-xs text-muted">
+              Includes documents owned by {others.length} member{others.length === 1 ? "" : "s"} ({others.map((m) => m.name).join(", ")}). Members keep view and download access to the workspace while it is expired.
+            </p>
+          )}
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** R-78: invite a member into the owned Business workspace, limited by the seat count. */
+function InviteModal({ close }: { close: () => void }) {
+  const { s, api } = useAppState();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const seats = currentSeats(s);
+  const used = s.workspace.members.length;
+  const ok = /.+@.+\..+/.test(email) && used < seats;
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Invite to ${s.workspace.name}`}
+      spec="R-78"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary"
+            disabled={!ok}
+            onClick={() => {
+              api.inviteMember(name, email);
+              close();
+            }}
+          >
+            Send invitation
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-ink-2">
+          {used} of {seats} seats in use. The invitee signs in with their own Privy account; their own Individual plan is not changed by joining. <Spec id="R-71" />
+        </p>
+        <div>
+          <label className="block text-[15px] font-medium text-ink">Name</label>
+          <input className="input mt-1" value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
+        </div>
+        <div>
+          <label className="block text-[15px] font-medium text-ink">Email</label>
+          <input className="input mt-1" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+        </div>
+        {used >= seats && <p className="text-xs text-danger">All seats are in use. Close this and use Manage seats to add one (prorated to your renewal date).</p>}
+      </div>
+    </Modal>
+  );
+}
+
+/** M-15: shown once after the Business workspace is created. */
+export function WelcomeBusinessModal() {
+  const { s, api } = useAppState();
+  const router = useRouter();
+  if (!s.ui.welcomeBusiness) return null;
+  const close = () => api.dismissWelcome();
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Welcome to ${s.workspace.name}`}
+      spec="M-15"
+      footer={
+        <>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              close();
+              api.switchWorkspace("individual");
+              router.push("/home");
+            }}
+          >
+            Stay in my Individual workspace
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => {
+              close();
+              router.push("/settings/billing");
+            }}
+          >
+            Invite my team
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm text-ink-2">
+        <p>Your Business plan comes with two workspaces. Switch between them from the avatar menu at the top right.</p>
+        <ul className="space-y-2">
+          <li className="flex gap-2">
+            <IconCheckCircle size={18} className="mt-0.5 shrink-0 text-success" />
+            <span>
+              <strong className="text-ink">{s.workspace.name} (Business)</strong>: unlimited envelopes, {currentSeats(s)} seat{currentSeats(s) > 1 ? "s" : ""} for your team, delegation, workflow automation, e-Seal and branding.
+            </span>
+          </li>
+          <li className="flex gap-2">
+            <IconCheckCircle size={18} className="mt-0.5 shrink-0 text-success" />
+            <span>
+              <strong className="text-ink">{s.user.name} (Individual)</strong>: now Personal with <strong className="text-ink">unlimited envelopes</strong>, included with Business at no extra cost. Use it for your own documents; the Business workspace is optional.
+            </span>
+          </li>
+        </ul>
+        <p className="text-xs text-muted">
+          Only you, as the owner, get the Individual upgrade. Members you invite keep their own plans. <Spec id="R-73" />
+        </p>
+      </div>
     </Modal>
   );
 }

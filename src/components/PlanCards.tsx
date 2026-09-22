@@ -1,7 +1,7 @@
 "use client";
 
 import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
-import { activeSubscription, classifyChange, currentTier, isPrepaidUser, planPrice, prepaidEnd, regionOf } from "@/lib/engine";
+import { activeSubscription, classifyChange, currentTier, isPrepaidUser, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
@@ -9,17 +9,30 @@ import { useFlows } from "./flows";
 import { IconBadge, IconCheck, IconCheckCircle } from "./Icons";
 import { Spec } from "./ui";
 
-type Cta = { label: string; kind: "current" | "action" | "sales" | "cancel" | "scheduled" | "disabled" };
+type Cta = { label: string; kind: "current" | "action" | "sales" | "cancel" | "scheduled" | "disabled" | "switch" };
 
 export function useCta() {
-  const { s } = useAppState();
+  const { s, api } = useAppState();
   const flows = useFlows();
   const tier = currentTier(s);
   const sub = activeSubscription(s);
   const prepaid = isPrepaidUser(s);
+  const ws = workspaceView(s);
+  const ownsBusiness = tier === "business";
 
   function ctaFor(target: Tier, interval: Interval): Cta {
     if (target === "enterprise") return { label: "Talk to sales", kind: "sales" };
+    // Workspace-aware labels (R-73, R-75). Members of other workspaces never see plan CTAs (the page shows a note instead).
+    if (ws.kind === "individual" && ownsBusiness) {
+      if (target === "personal") return { label: "Included with Business", kind: "disabled" };
+      if (target === "business" && !(sub?.scheduledChange)) return { label: `Your plan · in ${s.workspace.name}`, kind: "switch" };
+    }
+    if (ws.kind === "business" && target === "business" && workspaceStatus(s) === "expired" && !sub) {
+      return { label: "Reactivate Business", kind: "action" };
+    }
+    if (ws.kind === "business" && target === "personal" && !sub && workspaceStatus(s) === "expired") {
+      return { label: "Buy in your Individual workspace", kind: "switch" };
+    }
     if (target === "free") {
       if (tier === "free") return { label: "Your current plan", kind: "current" };
       if (prepaid) return { label: `Prepaid until ${fmtDate(prepaidEnd(s)!)}`, kind: "disabled" };
@@ -50,6 +63,7 @@ export function useCta() {
   function act(target: Tier, interval: Interval) {
     const c = ctaFor(target, interval);
     if (c.kind === "cancel") flows.open({ type: "cancel" });
+    else if (c.kind === "switch") api.switchWorkspace(ws.kind === "individual" ? "business" : "individual");
     else if (c.kind === "action") flows.open({ type: "plan", tier: target as PaidTier, interval });
     else if (c.kind === "sales") window.open("https://privyid.com/contact", "_blank");
   }
@@ -75,7 +89,7 @@ export function CtaButton({ target, interval, size = "md" }: { target: Tier; int
       </button>
     );
   }
-  if (c.kind === "cancel") {
+  if (c.kind === "cancel" || c.kind === "switch") {
     return (
       <button onClick={() => act(target, interval)} className={`btn ${base} border border-line-2 bg-white text-ink hover:bg-page`}>
         {c.label}
@@ -90,6 +104,21 @@ export function CtaButton({ target, interval, size = "md" }: { target: Tier; int
 }
 
 export function PlanCards({ interval, compact }: { interval: Interval; compact?: boolean }) {
+  const { s, api } = useAppState();
+  const ws = workspaceView(s);
+  if (ws.role === "member") {
+    return (
+      <div className="card flex flex-col items-start gap-3 p-6 text-sm text-ink-2">
+        <p className="text-[17px] font-medium text-ink">Plans are chosen per workspace</p>
+        <p>
+          <strong className="text-ink">{ws.name}</strong> is {ws.kind === "enterprise" ? "an Enterprise workspace under contract with" : "a Business workspace owned by"} {ws.ownerName}; its plan is not yours to change. Your own plans live in your Individual workspace. <Spec id="R-71" />
+        </p>
+        <button className="btn-primary" onClick={() => api.switchWorkspace("individual")}>
+          Go to my Individual workspace
+        </button>
+      </div>
+    );
+  }
   return (
     <div className={`grid gap-4 ${compact ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-4" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"}`}>
       {PLAN_CARDS.map((p) => (

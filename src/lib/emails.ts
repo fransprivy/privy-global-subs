@@ -70,7 +70,7 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-13", name: "Cancellation confirmed", trigger: "Cancellation scheduled", timing: "Immediately", legal: "Yes: CA / UK confirmation of cancellation", group: "Lifecycle" },
   { id: "N-14", name: "Plan ended", trigger: "Cancelled subscription reached period end", timing: "At period end", legal: "Recommended", group: "Lifecycle" },
   { id: "N-15", name: "Welcome back", trigger: "Subscription resumed", timing: "Immediately", legal: "Recommended", group: "Lifecycle" },
-  { id: "N-16", name: "Workspace closing (members)", trigger: "Business workspace will close / member removed", timing: "At scheduling and at effective date", legal: "No", group: "Changes" },
+  { id: "N-16", name: "Workspace read-only (members)", trigger: "Business plan ending: workspace becomes read-only for members", timing: "At scheduling and at effective date", legal: "No", group: "Changes" },
   { id: "N-17", name: "Turn on auto-renewal", trigger: "Migration opt-in series for prepaid users", timing: "Go-live, T-30, T-7, T-1", legal: "Yes: terms change notice", group: "Migration" },
   { id: "N-18", name: "Payment dispute", trigger: "Chargeback opened", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-19", name: "Price change notice", trigger: "Price change", timing: "30 days before first renewal at new price", legal: "Yes", group: "Other" },
@@ -176,7 +176,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       return {
         subject: `Final notice: your Privy ${c.planName} ends on ${c.graceEnd}`,
         body: [
-          `Unless payment succeeds by ${c.graceEnd}, your account moves to the Free plan: 5 envelopes a month, 5 reusable templates${c.isBusiness ? ", and your team workspace closes" : ""}.`,
+          `Unless payment succeeds by ${c.graceEnd}, your account moves to the Free plan: 5 envelopes a month, 5 reusable templates${c.isBusiness ? ", and your team workspace becomes read-only" : ""}.`,
           `Your documents stay safe.${c.isBusiness ? ` Hand over team documents before then so nobody loses access.` : ""}`,
         ],
         cta: { label: "Update payment method", href: "/settings/billing/payment-method" },
@@ -186,9 +186,11 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         subject: `Your Privy account is now on the Free plan`,
         body: [
           `We could not collect payment, so your ${c.planName} plan has ended. Your documents are safe.`,
-          `Resubscribe any time to get your plan back.`,
+          c.isBusiness
+            ? `${c.workspaceName} is now read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"}: envelopes can be viewed and downloaded, not signed or sent. Reactivate any time, or hand the documents over to your Individual workspace.`
+            : `Resubscribe any time to get your plan back.`,
         ],
-        cta: { label: "See plans", href: "/plans" },
+        cta: { label: c.isBusiness ? "Reactivate Business" : "See plans", href: c.isBusiness ? "/settings/billing" : "/plans" },
       };
     case "N-10":
       return {
@@ -248,10 +250,10 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       };
     case "N-16":
       return {
-        subject: `${c.workspaceName} is closing on ${c.effectiveDate}`,
+        subject: `${c.workspaceName} becomes read-only on ${c.effectiveDate}`,
         body: [
-          `The workspace owner has changed the plan. From ${c.effectiveDate} you will no longer be a member of ${c.workspaceName}.`,
-          `Documents you signed remain in your own Privy account.`,
+          `The Business plan for ${c.workspaceName} ends on ${c.effectiveDate}. From then the workspace is read-only: you can still open and download envelopes, but not sign, send or upload.`,
+          `Your own Privy plan is not affected. The owner can reactivate the plan at any time.`,
         ],
       };
     case "N-17":

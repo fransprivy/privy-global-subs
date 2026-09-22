@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { regionMeta } from "@/lib/catalog";
-import { activeSubscription, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
+import { activeSubscription, activeWorkspaceId, allWorkspaces, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
 import { addDays, daysBetween, fmtDate, startOfDayUTC } from "@/lib/format";
 import { SCENARIOS } from "@/lib/scenarios";
 import { useAppState } from "@/lib/store";
@@ -84,6 +84,19 @@ export function PrototypeControls() {
                 All scenarios
               </Link>
             </div>
+          </Section>
+
+          <Section title="Workspace">
+            <select className="input" value={activeWorkspaceId(s)} onChange={(e) => api.switchWorkspace(e.target.value)}>
+              {allWorkspaces(s).map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} · {w.kind === "individual" ? "Individual" : w.kind === "business" ? "Business" : "Enterprise"}
+                  {w.role === "member" ? " (member)" : ""}
+                  {w.status === "expired" ? " · expired" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted">Same as the avatar menu at the top right.</p>
           </Section>
 
           <Section title={`Region: ${region.flag} ${region.name} (${region.currency})`}>

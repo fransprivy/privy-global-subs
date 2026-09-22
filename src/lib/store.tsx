@@ -38,8 +38,13 @@ interface StoreApi {
   changeSeats: (target: number, consentText: string) => void;
   undoSeatChange: () => void;
   setRegion: (region: Region) => void;
+  switchWorkspace: (id: string) => void;
+  handoverDocuments: () => void;
+  inviteMember: (name: string, email: string) => void;
+  removeMember: (id: string) => void;
+  dismissWelcome: () => void;
   setPrefs: (prefs: Partial<WorkspacePrefs>) => void;
-  startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean }) => void;
+  startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }) => void;
   payBill: (billId: string, method: PaymentMethodKind, bank?: VaBank, card?: Card, saveCard?: boolean) => void;
   cancelPayment: (billId: string) => void;
   confirmPayment: (billId: string) => void;
@@ -61,6 +66,8 @@ function load(): AppState | null {
     if (!parsed.backupCards) parsed.backupCards = [];
     if (!parsed.region) parsed.region = "AU";
     if (!parsed.bills) parsed.bills = [];
+    // Workspace model (v3 states saved before it existed): the scenario seed is the safest source, so reload it.
+    if (!parsed.workspace.status || !parsed.otherWorkspaces) return null;
     return parsed;
   } catch {
     return null;
@@ -159,6 +166,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       changeSeats: (target, consentText) => update((s) => E.changeSeats(s, target, consentText)),
       undoSeatChange: () => update((s) => E.undoSeatChange(s)),
       setRegion: (region) => update((s) => E.setRegion(s, region)),
+      switchWorkspace: (id) => update((s) => E.switchWorkspace(s, id)),
+      handoverDocuments: () => update((s) => E.handoverDocuments(s)),
+      inviteMember: (name, email) => update((s) => E.inviteMember(s, name, email)),
+      removeMember: (id) => update((s) => E.removeMember(s, id)),
+      dismissWelcome: () => update((s) => ({ ...s, ui: { ...s.ui, welcomeBusiness: false } })),
       setPrefs: (prefs) => update((s) => ({ ...s, prefs: { timezone: "auto", dateFormat: "dd MMM yyyy", ...(s.prefs ?? {}), ...prefs } })),
       startOneTimePurchase: (input) => update((s) => E.startOneTimePurchase(s, input)),
       payBill: (billId, method, bank, card, saveCard) => update((s) => E.payBill(s, billId, method, bank, card, saveCard)),

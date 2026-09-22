@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, openBill, planName, planPrice, prepaidEnd } from "@/lib/engine";
+import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, openBill, planName, planPrice, prepaidEnd, workspaceView } from "@/lib/engine";
 import { daysBetween, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import { useFlows } from "./flows";
@@ -14,6 +14,40 @@ export function Banners() {
   const flows = useFlows();
   const sub = activeSubscription(s);
   const items: React.ReactNode[] = [];
+  const ws = workspaceView(s);
+
+  // B-09: the active workspace is expired (read-only). Shown only inside that workspace (R-72).
+  if (ws.readOnly) {
+    const owner = ws.role === "owner" && ws.kind === "business";
+    items.push(
+      <Banner key="b09" tone="danger" icon={<IconWarning size={20} />} spec="B-09">
+        <div className="flex-1">
+          <p className="font-semibold">
+            {ws.name} is read-only{ws.expiredAt ? ` since ${fmtDate(ws.expiredAt)}` : ""}: view and download only.
+          </p>
+          <p className="text-xs opacity-80">
+            {ws.kind === "enterprise"
+              ? "The Enterprise contract ended. Contact sales to renew; nothing is deleted."
+              : owner
+                ? `Your Business plan ended. Reactivate to sign and send again, or hand the ${ws.documents.length} envelope${ws.documents.length === 1 ? "" : "s"} over to your Individual workspace.`
+                : `${ws.ownerName}'s Business plan ended. Ask the owner to reactivate it. Your own plan is not affected.`}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {owner && ws.documents.length > 0 && (
+            <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "handover" })}>
+              <IconHandover size={14} /> Hand over documents
+            </button>
+          )}
+          {owner && (
+            <Link href="/settings/billing" className="btn-primary !py-1.5 text-xs">
+              Reactivate Business
+            </Link>
+          )}
+        </div>
+      </Banner>
+    );
+  }
 
   if (sub && sub.status === "past_due") {
     const left = graceDaysLeft(s) ?? 0;

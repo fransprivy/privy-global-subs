@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ANNUAL_SAVINGS, TIER_LABEL } from "@/lib/catalog";
-import { activeSubscription, classifyChange, intervalWord, periodEnd, planName, planPrice } from "@/lib/engine";
+import { activeSubscription, classifyChange, intervalWord, periodEnd, planName, planPrice, workspaceStatus } from "@/lib/engine";
 import { addDays, daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
@@ -42,6 +42,9 @@ export function CheckoutDrawer({
   const [declineMsg, setDeclineMsg] = useState("");
   const [promoOpen, setPromoOpen] = useState(false);
   const [promo, setPromo] = useState("");
+  // First Business purchase creates the owned workspace (R-74). Reactivation keeps the existing name.
+  const [newWorkspace] = useState(() => tier === "business" && workspaceStatus(s) === "none");
+  const [workspaceName, setWorkspaceName] = useState(`${s.user.name}'s team`);
 
   const amount = planPrice(tier, interval, seats);
   const today = startOfDayUTC(s.now);
@@ -64,9 +67,9 @@ export function CheckoutDrawer({
 
   function complete(finalCard: Card) {
     if (mode === "subscribe") {
-      api.completeSubscription({ tier, interval, seats, card: finalCard, consentText });
+      api.completeSubscription({ tier, interval, seats, card: finalCard, consentText, workspaceName: newWorkspace ? workspaceName : undefined });
     } else {
-      api.upgradeNow({ tier, interval, seats, consentText: isTierUpgrade ? `${ackText} ${consentText}` : consentText, card: finalCard });
+      api.upgradeNow({ tier, interval, seats, consentText: isTierUpgrade ? `${ackText} ${consentText}` : consentText, card: finalCard, workspaceName: newWorkspace ? workspaceName : undefined });
     }
     setStage("success");
   }
@@ -257,6 +260,7 @@ export function CheckoutDrawer({
                   {fmtMoney(planPrice(tier, interval, 1))} per seat per {intervalWord(interval)}. Includes you.
                 </span>
               </div>
+              {newWorkspace && <WorkspaceNameField value={workspaceName} onChange={setWorkspaceName} />}
             </section>
           )}
 
@@ -349,4 +353,17 @@ function ordinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+/** Shown on the first Business purchase: the Business workspace that gets created (R-74). */
+export function WorkspaceNameField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="mt-4 rounded-xl border border-line bg-page p-4">
+      <label className="block text-[15px] font-medium text-ink">Business workspace name</label>
+      <input className="input mt-2" value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Privy Product Team" maxLength={60} />
+      <p className="mt-2 text-xs text-ink-2">
+        Business comes as a separate workspace for your team (invite members, delegate, automate). You keep your Individual workspace too, and it gets unlimited envelopes while your Business plan is active. <Spec id="R-73" />
+      </p>
+    </div>
+  );
 }

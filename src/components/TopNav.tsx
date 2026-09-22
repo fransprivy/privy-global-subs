@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ENVELOPE_LIMIT } from "@/lib/catalog";
-import { currentTier } from "@/lib/engine";
+import { workspaceView } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
-import { HeartAvatar, PrivyLogo } from "./Logo";
+import { PrivyLogo } from "./Logo";
 import { IconBell, IconChat, IconEnvelope, IconGear, IconHome, IconSparkle, IconTemplates } from "./Icons";
 import { Spec } from "./ui";
+import { WorkspaceMenu } from "./WorkspaceMenu";
 
 const NAV = [
   { href: "/home", label: "Home", icon: IconHome },
@@ -19,10 +19,20 @@ const NAV = [
 export function TopNav() {
   const { s } = useAppState();
   const path = usePathname();
-  const tier = currentTier(s);
-  const limit = ENVELOPE_LIMIT[tier];
-  const left = limit === null ? null : Math.max(0, limit - s.usage.envelopesSent);
-  const cta = tier === "business" || tier === "enterprise" ? { label: "Manage plan", href: "/settings/billing" } : { label: "Upgrade plan", href: "/plans" };
+  const ws = workspaceView(s);
+  const limit = ws.envelopeLimit;
+  const left = limit === null ? null : Math.max(0, limit - ws.usage.envelopesSent);
+  // CTA per workspace (R-77): Individual Free/Personal → Upgrade; owner perk → Included with Business; owned Business → Manage / Reactivate; member → none.
+  const cta =
+    ws.kind === "individual"
+      ? ws.planLabel.includes("included")
+        ? { label: "Included with Business", href: "/settings/billing" }
+        : { label: "Upgrade plan", href: "/plans" }
+      : ws.kind === "business" && ws.role === "owner"
+        ? ws.status === "expired"
+          ? { label: "Reactivate plan", href: "/settings/billing" }
+          : { label: "Manage plan", href: "/settings/billing" }
+        : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-white">
@@ -45,11 +55,13 @@ export function TopNav() {
         </nav>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           <span className={`whitespace-nowrap text-[15px] text-ink-2 ${(s.ui.guideOpen ?? true) ? "hidden 2xl:inline" : "hidden sm:inline"}`}>
-            {left === null ? "Unlimited sends" : `${left} sends left`}
+            {ws.readOnly ? "Read-only workspace" : left === null ? "Unlimited sends" : `${left} sends left`}
           </span>
-          <Link href={cta.href} className="btn-primary !py-2 text-[15px] whitespace-nowrap">
-            {cta.label}
-          </Link>
+          {cta && (
+            <Link href={cta.href} className={`${cta.label === "Included with Business" ? "btn-secondary" : "btn-primary"} !py-2 text-[15px] whitespace-nowrap`}>
+              {cta.label}
+            </Link>
+          )}
           <Spec id="UX-13" />
           <button className="hidden rounded-lg p-2 text-[#e8477a] hover:bg-page sm:inline-flex" aria-label="PrivyPal">
             <IconSparkle size={20} />
@@ -60,9 +72,7 @@ export function TopNav() {
           <Link href="/settings/personal-info" className={`rounded-lg p-2 text-ink-2 hover:bg-page ${path.startsWith("/settings") ? "bg-[#eeeeee]" : ""}`} aria-label="Settings">
             <IconGear size={20} />
           </Link>
-          <Link href="/settings/personal-info" aria-label="Profile">
-            <HeartAvatar size={40} />
-          </Link>
+          <WorkspaceMenu />
         </div>
       </div>
       <nav className="flex items-center gap-1 overflow-x-auto border-t border-line px-2 md:hidden no-scrollbar">

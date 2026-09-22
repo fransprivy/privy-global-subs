@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useFlows } from "@/components/flows";
-import { IconCard, IconChevronRight, IconClock, IconDownload, IconHistory, IconReceipt, IconRefresh, IconSearch, IconUsers } from "@/components/Icons";
+import { IconCard, IconChevronRight, IconClock, IconDownload, IconHandover, IconHistory, IconLock, IconPlus, IconReceipt, IconRefresh, IconSearch, IconTrash, IconUsers } from "@/components/Icons";
+import { WorkspaceAvatar } from "@/components/WorkspaceMenu";
 import { CardBrandBadge } from "@/components/payments";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, StatusPill } from "@/components/ui";
-import { BILL_LEAD_DAYS, ENVELOPE_LIMIT, TEMPLATE_LIMIT, regionMeta } from "@/lib/catalog";
-import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, isIndonesia, isOneTimeUser, isPrepaidUser, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf } from "@/lib/engine";
+import { BILL_LEAD_DAYS, TEMPLATE_LIMIT, regionMeta } from "@/lib/catalog";
+import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, individualPlan, isIndonesia, isOneTimeUser, isPrepaidUser, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView, type WorkspaceView } from "@/lib/engine";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Bill, Invoice } from "@/lib/types";
@@ -51,26 +52,72 @@ function Billing() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
+  const ws = workspaceView(s);
+  const perk = ws.kind === "individual" && individualPlan(s) === "personal_plus";
+  const member = ws.role === "member";
+
+  const usage = (
+    <section>
+      <h2 className="mb-3 text-[17px] font-medium text-ink">Usage limits</h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <UsageTile
+          icon={<IconReceipt size={20} />}
+          title="Envelopes sent"
+          value={ws.envelopeLimit === null ? `${ws.usage.envelopesSent} sent this month · unlimited${perk ? " (included with Business)" : ""}` : `${ws.usage.envelopesSent} of ${ws.envelopeLimit} used this month`}
+        />
+        <UsageTile icon={<IconHistory size={20} />} title="Reusable templates" value={limitText(ws.usage.templates, ws.kind === "individual" && !perk ? TEMPLATE_LIMIT[tier] : null, "used", "saved")} />
+        <UsageTile icon={<IconUsers size={20} />} title="Saved contacts" value={`${ws.usage.contacts} saved · unlimited`} />
+        <UsageTile
+          icon={<IconUsers size={20} />}
+          title="Team members"
+          value={
+            ws.kind === "individual"
+              ? "1 (you) · invite people in a Business workspace"
+              : ws.kind === "enterprise"
+                ? "Custom"
+                : member
+                  ? `Managed by ${ws.ownerName}`
+                  : sub
+                    ? `${s.workspace.members.length} of ${sub.seats} seats used${sub.pendingSeats != null ? ` · ${sub.pendingSeats} from ${fmtDate(sub.currentPeriodEnd)}` : ""}`
+                    : `${s.workspace.members.length} of ${currentSeats(s)} seats`
+          }
+        />
+      </div>
+    </section>
+  );
+
+  if (member) {
+    return (
+      <div>
+        <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle={`${ws.name} · managed by ${ws.ownerName}`} />
+        <div className="space-y-8 px-6 py-6 sm:px-10">
+          <MemberPlanCard ws={ws} />
+          {usage}
+        </div>
+      </div>
+    );
+  }
+
+  if (perk) {
+    return (
+      <div>
+        <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle="Your Individual workspace" />
+        <div className="space-y-8 px-6 py-6 sm:px-10">
+          <PerkCard />
+          {usage}
+          <History />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle="Manage your plan and payment details" />
+      <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle={ws.kind === "business" ? `${ws.name} · Business workspace` : "Manage your plan and payment details"} />
       <div className="space-y-8 px-6 py-6 sm:px-10">
         <SubscriptionCard />
-
-        <section>
-          <h2 className="mb-3 text-[17px] font-medium text-ink">Usage limits</h2>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <UsageTile icon={<IconReceipt size={20} />} title="Envelopes sent" value={limitText(s.usage.envelopesSent, ENVELOPE_LIMIT[tier], "used this month", "sent this month")} />
-            <UsageTile icon={<IconHistory size={20} />} title="Reusable templates" value={limitText(s.usage.templates, TEMPLATE_LIMIT[tier], "used", "saved")} />
-            <UsageTile icon={<IconUsers size={20} />} title="Saved contacts" value={`${s.usage.contacts} saved · unlimited`} />
-            <UsageTile
-              icon={<IconUsers size={20} />}
-              title="Team members"
-              value={tier === "business" && sub ? `${s.workspace.members.length} of ${sub.seats} seats used${sub.pendingSeats != null ? ` · ${sub.pendingSeats} from ${fmtDate(sub.currentPeriodEnd)}` : ""}` : tier === "enterprise" ? "Custom" : "1 (you) · Business adds seats"}
-            />
-          </div>
-        </section>
-
+        {usage}
+        {ws.kind === "business" && <TeamMembers />}
         <Bills />
         <PaymentMethodCard />
         <Invoices />
@@ -78,6 +125,131 @@ function Billing() {
         <SupportPanel />
       </div>
     </div>
+  );
+}
+
+/** Individual workspace of a Business owner: the plan is paid for in the Business workspace (R-73). */
+function PerkCard() {
+  const { s, api } = useAppState();
+  const sub = activeSubscription(s);
+  const pe = prepaidEnd(s);
+  const until = sub ? sub.currentPeriodEnd : pe;
+  return (
+    <section className="card overflow-hidden">
+      <div className="bg-gradient-to-b from-[#f2f2f2] to-white px-6 pt-5 pb-5">
+        <p className="text-[15px] text-muted">Your subscription</p>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          <p className="font-display text-[34px] font-semibold text-ink">Personal</p>
+          <StatusPill tone="success">Included with Business</StatusPill>
+          <Spec id="R-73" />
+        </div>
+        <p className="mt-2 max-w-[760px] text-[15px] text-ink-2">
+          Because you own the Business workspace <strong className="text-ink">{s.workspace.name}</strong>, this Individual workspace has everything in Personal with <strong className="text-ink">unlimited envelopes</strong>. Nothing is charged for it; it stays as long as your Business plan is active{until ? ` (currently until ${fmtDate(until)})` : ""}.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button className="btn-primary" onClick={() => api.switchWorkspace("business")}>
+            Open {s.workspace.name}
+          </button>
+          <Link href="/settings/billing/change-plan" className="btn-ghost">
+            See plans
+          </Link>
+        </div>
+      </div>
+      <div className="border-t border-line bg-[#f5f5f5] px-6 py-3 text-right text-sm text-ink-2">Invoices, payment methods, seats and cancellation live in the Business workspace billing page.</div>
+    </section>
+  );
+}
+
+/** Member of someone else's Business or Enterprise workspace: nothing to buy here (R-71). */
+function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
+  const { s } = useAppState();
+  const other = (s.otherWorkspaces ?? []).find((w) => w.id === ws.id);
+  return (
+    <section className="card overflow-hidden">
+      <div className="bg-gradient-to-b from-[#f2f2f2] to-white px-6 pt-5 pb-5">
+        <p className="text-[15px] text-muted">Workspace plan</p>
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          <WorkspaceAvatar w={ws} size={40} />
+          <p className="font-display text-[34px] font-semibold text-ink">{ws.kind === "enterprise" ? "Enterprise" : "Business"}</p>
+          <StatusPill tone={ws.status === "expired" ? "danger" : "success"}>{ws.status === "expired" ? `Expired${ws.expiredAt ? ` · ${fmtDate(ws.expiredAt)}` : ""}` : "Active"}</StatusPill>
+          <Spec id="R-71" />
+        </div>
+        <p className="mt-2 max-w-[760px] text-[15px] text-ink-2">
+          {ws.kind === "enterprise" ? (
+            <>
+              Billing for <strong className="text-ink">{ws.name}</strong> is handled under an Enterprise contract with {ws.ownerName}
+              {other?.contractEnd ? ` (contract ${ws.status === "expired" ? "ended" : "runs until"} ${fmtDate(other.contractEnd)})` : ""}. There is no self-service plan here; renewals go through our sales team.
+            </>
+          ) : (
+            <>
+              <strong className="text-ink">{ws.ownerName}</strong> owns this workspace and pays for its seats. You are one of {other?.memberCount ?? 1} members. Your own Individual plan ({individualPlan(s) === "free" ? "Free" : "Personal"}) is not changed by this membership.
+            </>
+          )}
+        </p>
+        {ws.status === "expired" && (
+          <p className="mt-3 flex items-center gap-2 rounded-lg bg-danger-tint px-3 py-2 text-sm text-danger">
+            <IconLock size={16} /> Read-only: view and download only until {ws.kind === "enterprise" ? "the contract is renewed" : "the owner reactivates the plan"}.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {ws.kind === "enterprise" && <button className="btn-secondary">Contact sales</button>}
+          <Link href="/plans" className="btn-ghost">
+            Plans for your Individual workspace
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Owner view of the Business workspace members (R-78). Seats come from the subscription; invites are limited to the seat count. */
+function TeamMembers() {
+  const { s, api } = useAppState();
+  const flows = useFlows();
+  const members = s.workspace.members;
+  const seats = currentSeats(s);
+  const expired = workspaceStatus(s) === "expired";
+  const free = Math.max(0, seats - members.length);
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-[17px] font-medium text-ink">
+          Team members <Spec id="R-78" />
+        </h2>
+        <div className="flex gap-2">
+          {!expired && (
+            <button className="btn-secondary !py-2" onClick={() => flows.open({ type: "seats" })}>
+              Manage seats
+            </button>
+          )}
+          <button className="btn-primary !py-2" disabled={expired || free === 0} onClick={() => flows.open({ type: "invite" })} title={expired ? "Read-only workspace" : free === 0 ? "All seats are in use. Add seats first." : undefined}>
+            <IconPlus size={16} /> Invite member
+          </button>
+        </div>
+      </div>
+      <div className="card divide-y divide-line">
+        {members.map((m) => (
+          <div key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#eeeeee] text-sm font-semibold text-ink-2">{m.name.slice(0, 2).toUpperCase()}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-medium text-ink">
+                {m.name} {m.role === "owner" && <span className="ml-1 text-xs font-normal text-muted">(you)</span>}
+              </p>
+              <p className="text-sm text-muted">{m.email}</p>
+            </div>
+            <span className="chip bg-[#eeeeee] text-ink-2">{m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member"}</span>
+            {m.role !== "owner" && (
+              <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => api.removeMember(m.id)}>
+                <IconTrash size={14} /> Remove
+              </button>
+            )}
+          </div>
+        ))}
+        <div className="px-5 py-3 text-sm text-muted">
+          {members.length} of {seats} seats in use{free > 0 ? ` · ${free} free seat${free > 1 ? "s" : ""} (still billed)` : " · add seats to invite more people"}. Removing a member frees the seat but does not change your bill until you reduce seats.
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -159,6 +331,26 @@ function SubscriptionCard() {
         </button>
       );
     }
+  } else if (workspaceStatus(s) === "expired" && (s.activeWorkspace ?? "individual") === "business") {
+    const ended = s.workspace.expiredAt;
+    status = <StatusPill tone="danger">Expired · read-only{ended ? ` since ${fmtDate(ended)}` : ""}</StatusPill>;
+    footer = (
+      <span className="text-danger">
+        The Business plan ended{ended ? ` on ${fmtDate(ended)}` : ""}. Envelopes can be viewed and downloaded only. Reactivate to start a new billing period today, or hand the documents over to your Individual workspace. <Spec id="R-72" />
+      </span>
+    );
+    actions.push(
+      <button key="react" className="btn-primary" onClick={() => flows.open({ type: "plan", tier: "business", interval: "monthly", seats: Math.max(1, s.workspace.members.length) })}>
+        <IconRefresh size={16} /> Reactivate Business
+      </button>
+    );
+    if ((s.workspace.documents ?? []).length > 0) {
+      actions.push(
+        <button key="handover" className="btn-secondary" onClick={() => flows.open({ type: "handover" })}>
+          <IconHandover size={16} /> Hand over documents
+        </button>
+      );
+    }
   } else if (oneTime) {
     const pe = prepaidEnd(s)!;
     const left = daysLeftInPeriod(s) ?? 0;
@@ -205,7 +397,7 @@ function SubscriptionCard() {
       <div className="bg-gradient-to-b from-[#f2f2f2] to-white px-6 pt-5 pb-5">
         <p className="text-[15px] text-muted">Your subscription</p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <p className="font-display text-[34px] font-semibold text-ink">{tier === "free" ? "Free Plan" : currentPlanName(s)}</p>
+          <p className="font-display text-[34px] font-semibold text-ink">{workspaceStatus(s) === "expired" && (s.activeWorkspace ?? "individual") === "business" ? "Business" : tier === "free" ? "Free Plan" : currentPlanName(s)}</p>
           {status}
           <Spec id="UX-01" />
         </div>

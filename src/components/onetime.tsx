@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PAYMENT_ID_VALID_HOURS, REGIONS, TIER_LABEL, VA_BANKS, regionMeta } from "@/lib/catalog";
-import { intervalWord, isOneTimeUser, methodLabel, paymentMethodsFor, periodEnd, planName, planPrice, prepaidEnd, regionOf } from "@/lib/engine";
+import { intervalWord, isOneTimeUser, methodLabel, paymentMethodsFor, periodEnd, planName, planPrice, prepaidEnd, regionOf, workspaceStatus } from "@/lib/engine";
 import { dayOfMonthUTC, fmtDate, fmtDateTime, fmtMoney, isSameOrAfter, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Bill, Card, Interval, PaidTier, PaymentMethodKind, PurchaseType, VaBank } from "@/lib/types";
 import { IconBank, IconCard, IconCheckCircle, IconChevronDown, IconDownload, IconInfo, IconMinus, IconPlus, IconQr, IconReceipt, IconRefresh, IconShield } from "./Icons";
+import { WorkspaceNameField } from "./CheckoutDrawer";
 import { CardForm, cardFormValid, cardFromForm, Radio, SavedCardRow, type CardFormValue } from "./payments";
 import { Checkbox, Drawer, Modal, Spec } from "./ui";
 
@@ -138,6 +139,8 @@ export function OneTimeCheckoutDrawer({
   const [saveCard, setSaveCard] = useState(true);
   const [busy, setBusy] = useState(false);
   const region = regionMeta(regionOf(s));
+  const [newWorkspace] = useState(() => !bill && workspaceStatus(s) === "none");
+  const [workspaceName, setWorkspaceName] = useState(`${s.user.name}'s team`);
 
   const amount = bill ? bill.amount : planPrice(tier, interval, seats);
   const pe = prepaidEnd(s);
@@ -151,7 +154,7 @@ export function OneTimeCheckoutDrawer({
     setTimeout(() => {
       const newCard = method === "card" && !useSaved && card ? card : undefined;
       if (bill) api.payBill(bill.id, method, method === "va" ? bank : undefined, method === "card" ? card ?? undefined : undefined, !!newCard && saveCard);
-      else api.startOneTimePurchase({ tier, interval, seats, method, bank: method === "va" ? bank : undefined, card: method === "card" ? card ?? undefined : undefined, saveCard: !!newCard && saveCard });
+      else api.startOneTimePurchase({ tier, interval, seats, method, bank: method === "va" ? bank : undefined, card: method === "card" ? card ?? undefined : undefined, saveCard: !!newCard && saveCard, workspaceName: tier === "business" && newWorkspace ? workspaceName : undefined });
       onPaymentCreated();
     }, 500);
   }
@@ -239,6 +242,7 @@ export function OneTimeCheckoutDrawer({
                   </span>
                 </div>
               )}
+              {tier === "business" && newWorkspace && <WorkspaceNameField value={workspaceName} onChange={setWorkspaceName} />}
             </div>
           )}
         </section>

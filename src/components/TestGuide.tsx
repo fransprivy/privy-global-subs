@@ -19,6 +19,7 @@ const TAG_STYLE: Record<string, string> = {
   Migration: "bg-gold-tint text-gold",
   Cancel: "bg-[#eeeeee] text-ink-2",
   Indonesia: "bg-[#fde8e8] text-[#b3261e]",
+  Workspaces: "bg-[#e8e4f8] text-[#4b3aa3]",
 };
 
 export const GUIDE_WIDTH = 360;

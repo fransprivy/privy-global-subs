@@ -3,6 +3,7 @@ import {
   BILL_LEAD_DAYS,
   BILL_REMINDER_DAYS,
   BUSINESS_ONLY_FEATURES,
+  ENVELOPE_LIMIT,
   INTERVAL_LABEL,
   PAYMENT_ID_VALID_HOURS,
   PRICES,
@@ -41,9 +42,13 @@ import type {
   HistoryType,
   Interval,
   Invoice,
+  Member,
   PaidTier,
   Subscription,
+  Task,
   Tier,
+  Usage,
+  WorkspaceStatus,
 } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -337,21 +342,204 @@ function declineCode(outcome: AttemptOutcome, card: Card | null): string | undef
   return undefined;
 }
 
-function closeWorkspace(s: AppState, effectiveDateLabel: string): AppState {
-  if (s.workspace.members.length <= 1 && s.workspace.closed) return s;
+/* ------------------------------------------------------------------ */
+/* Workspaces (R-70 to R-79)                                            */
+/* ------------------------------------------------------------------ */
+export function workspaceStatus(s: AppState): WorkspaceStatus {
+  if (s.workspace.status) return s.workspace.status;
+  // Older saved states: infer from the plan.
+  if (currentTier(s) === "business") return "active";
+  return s.workspace.closed && s.workspace.members.length > 1 ? "expired" : "none";
+}
+export function ownsBusinessWorkspace(s: AppState): boolean {
+  return workspaceStatus(s) !== "none";
+}
+/** True while the user's own Business plan is live (active, in grace, cancel scheduled, or a paid one-time period). */
+export function businessPlanActive(s: AppState): boolean {
+  return currentTier(s) === "business";
+}
+export type IndividualPlan = "free" | "personal" | "personal_plus";
+/** Plan of the Individual workspace. Business owners get "personal_plus": everything in Personal with unlimited envelopes (R-73). */
+export function individualPlan(s: AppState): IndividualPlan {
+  if (businessPlanActive(s)) return "personal_plus";
+  const t = currentTier(s);
+  return t === "personal" ? "personal" : "free";
+}
+export function activeWorkspaceId(s: AppState): string {
+  const id = s.activeWorkspace ?? "individual";
+  if (id === "business" && !ownsBusinessWorkspace(s)) return "individual";
+  if (id !== "individual" && id !== "business" && !(s.otherWorkspaces ?? []).some((w) => w.id === id)) return "individual";
+  return id;
+}
+export interface WorkspaceView {
+  id: string;
+  kind: "individual" | "business" | "enterprise";
+  name: string;
+  role: "owner" | "member";
+  status: "active" | "expired";
+  readOnly: boolean;
+  /** Plan chip text and tone. */
+  planLabel: string;
+  planTone: "success" | "warn" | "danger" | "info" | "neutral";
+  envelopeLimit: number | null;
+  usage: Usage;
+  documents: Task[];
+  ownerName: string | null;
+  initials: string;
+  color: string;
+  expiredAt: string | null;
+}
+export function workspaceView(s: AppState, id: string = activeWorkspaceId(s)): WorkspaceView {
+  if (id === "individual") {
+    const plan = individualPlan(s);
+    return {
+      id,
+      kind: "individual",
+      name: s.user.name,
+      role: "owner",
+      status: "active",
+      readOnly: false,
+      planLabel: plan === "personal_plus" ? "Personal · included with Business" : plan === "personal" ? planName("personal", currentInterval(s) ?? undefined) : "Free",
+      planTone: plan === "free" ? "neutral" : "success",
+      envelopeLimit: plan === "personal_plus" ? null : plan === "personal" ? ENVELOPE_LIMIT.personal : ENVELOPE_LIMIT.free,
+      usage: s.usage,
+      documents: s.tasks,
+      ownerName: null,
+      initials: s.user.name.slice(0, 2).toUpperCase(),
+      color: "#8b1d3b",
+      expiredAt: null,
+    };
+  }
+  if (id === "business") {
+    const st = workspaceStatus(s);
+    const sub = activeSubscription(s);
+    const expired = st === "expired";
+    return {
+      id,
+      kind: "business",
+      name: s.workspace.name,
+      role: "owner",
+      status: expired ? "expired" : "active",
+      readOnly: expired,
+      planLabel: expired ? "Business · expired" : sub?.status === "past_due" ? "Business · payment failed" : sub?.status === "cancel_scheduled" ? `Business · ends ${fmtDate(sub.currentPeriodEnd)}` : "Business · active",
+      planTone: expired ? "danger" : sub?.status === "past_due" ? "danger" : sub?.status === "cancel_scheduled" ? "warn" : "success",
+      envelopeLimit: null,
+      usage: s.workspace.usage ?? { envelopesSent: 0, templates: 0, contacts: 0 },
+      documents: s.workspace.documents ?? [],
+      ownerName: s.user.name,
+      initials: s.workspace.name.slice(0, 2).toUpperCase(),
+      color: "#1f7a48",
+      expiredAt: s.workspace.expiredAt ?? null,
+    };
+  }
+  const w = (s.otherWorkspaces ?? []).find((o) => o.id === id)!;
+  return {
+    id,
+    kind: w.kind,
+    name: w.name,
+    role: "member",
+    status: w.status,
+    readOnly: w.status === "expired",
+    planLabel: `${w.kind === "enterprise" ? "Enterprise" : "Business"} · ${w.status === "expired" ? "expired" : "active"}`,
+    planTone: w.status === "expired" ? "danger" : "success",
+    envelopeLimit: null,
+    usage: w.usage,
+    documents: w.documents,
+    ownerName: w.ownerName,
+    initials: w.initials,
+    color: w.color,
+    expiredAt: w.expiredAt ?? null,
+  };
+}
+/** All workspaces for the switcher, current first is handled by the UI. */
+export function allWorkspaces(s: AppState): WorkspaceView[] {
+  const ids = ["individual", ...(ownsBusinessWorkspace(s) ? ["business"] : []), ...(s.otherWorkspaces ?? []).map((w) => w.id)];
+  return ids.map((id) => workspaceView(s, id));
+}
+export function switchWorkspace(s: AppState, id: string): AppState {
+  const next = { ...s, activeWorkspace: id };
+  const v = workspaceView(next);
+  return toast(next, `Switched to ${v.name}${v.kind === "individual" ? " (Individual)" : v.kind === "business" ? " (Business)" : " (Enterprise)"}.`, "info");
+}
+
+/** Business plan ended: the owned workspace becomes read-only instead of disappearing (R-72). Members keep view/download access. */
+function expireWorkspace(s: AppState, effectiveDateLabel: string): AppState {
+  if (workspaceStatus(s) !== "active") return s;
   let next = s;
-  const others = s.workspace.members.filter((m) => m.role !== "owner");
-  for (const m of others) {
+  for (const m of s.workspace.members.filter((mm) => mm.role !== "owner")) {
     next = sendEmail(next, "N-16", { effectiveDate: effectiveDateLabel }, `N-16:${m.id}:${effectiveDateLabel}`, m.email);
   }
+  next = addHistory(next, "workspace_expired", `${s.workspace.name} is now read-only`, `The Business plan ended on ${effectiveDateLabel}. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to ${individualPlanLabelAfterEnd(s)}.`);
   return {
     ...next,
-    workspace: {
-      ...next.workspace,
-      members: next.workspace.members.filter((m) => m.role === "owner"),
-      closed: true,
-    },
+    workspace: { ...next.workspace, status: "expired", expiredAt: next.now, closed: true },
   };
+}
+function individualPlanLabelAfterEnd(s: AppState): string {
+  const c = s.subscription?.scheduledChange;
+  return c && c.tier === "personal" ? planName("personal", c.interval) : "Free";
+}
+/** Called whenever a Business plan starts (checkout, upgrade, one-time purchase, opt-in). Creates or reactivates the owned workspace (R-74, R-75). */
+function activateWorkspace(s: AppState, name?: string): AppState {
+  const st = workspaceStatus(s);
+  if (st === "active") return { ...s, workspace: { ...s.workspace, status: "active", closed: false } };
+  if (st === "expired") {
+    let next: AppState = { ...s, workspace: { ...s.workspace, status: "active", expiredAt: null, closed: false } };
+    next = addHistory(next, "workspace_reactivated", `${s.workspace.name} reactivated`, "Members can sign and send again. Your Individual workspace now has unlimited envelopes.");
+    return next;
+  }
+  const wsName = (name ?? "").trim() || `${s.user.name}'s team`;
+  const owner: Member = s.workspace.members.find((m) => m.role === "owner") ?? { id: "m0", name: s.user.name, email: s.user.email, role: "owner" };
+  let next: AppState = {
+    ...s,
+    workspace: {
+      ...s.workspace,
+      name: wsName,
+      status: "active",
+      closed: false,
+      createdAt: s.now,
+      expiredAt: null,
+      members: [owner],
+      documents: s.workspace.documents ?? [],
+      usage: s.workspace.usage ?? { envelopesSent: 0, templates: 0, contacts: 0 },
+      handedOverAt: null,
+    },
+    activeWorkspace: "business",
+    ui: { ...s.ui, welcomeBusiness: true },
+  };
+  next = addHistory(next, "workspace_created", `Business workspace "${wsName}" created`, "You are the owner. Your Individual workspace now has unlimited envelopes (Personal, included with Business).");
+  return next;
+}
+
+/** Owner moves every envelope from the Business workspace into their Individual workspace (existing Document Handover feature, UX-08). */
+export function handoverDocuments(s: AppState): AppState {
+  const docs = s.workspace.documents ?? [];
+  if (docs.length === 0) return toast(s, "There are no documents left to hand over.", "info");
+  let next: AppState = {
+    ...s,
+    tasks: [...docs.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks],
+    workspace: { ...s.workspace, documents: [], handedOverAt: s.now },
+  };
+  next = addHistory(next, "handover", `${docs.length} document${docs.length === 1 ? "" : "s"} handed over to your Individual workspace`, `From ${s.workspace.name}. They stay accessible even if the Business workspace is never reactivated.`);
+  return toast(next, `${docs.length} document${docs.length === 1 ? "" : "s"} moved to your Individual workspace.`);
+}
+
+export function inviteMember(s: AppState, name: string, email: string): AppState {
+  const sub = activeSubscription(s);
+  const seats = currentSeats(s);
+  if (s.workspace.members.length >= seats) return toast(s, `All ${seats} seats are in use. Add seats first.`, "warn");
+  if (workspaceStatus(s) !== "active") return toast(s, "This workspace is read-only. Reactivate the plan to invite members.", "warn");
+  const m: Member = { id: uid("m"), name: name.trim() || email.split("@")[0], email: email.trim(), role: "member" };
+  let next: AppState = { ...s, workspace: { ...s.workspace, members: [...s.workspace.members, m] } };
+  next = addHistory(next, "member_invited", `${m.name} invited to ${s.workspace.name}`, `${m.email} · seat ${next.workspace.members.length} of ${seats}${sub ? "" : ""}.`);
+  return toast(next, `Invitation sent to ${m.email}.`);
+}
+export function removeMember(s: AppState, id: string): AppState {
+  const m = s.workspace.members.find((x) => x.id === id);
+  if (!m || m.role === "owner") return s;
+  let next: AppState = { ...s, workspace: { ...s.workspace, members: s.workspace.members.filter((x) => x.id !== id) } };
+  next = addHistory(next, "member_removed", `${m.name} removed from ${s.workspace.name}`, "The seat is free again; it is still billed until you reduce seats.");
+  return toast(next, `${m.name} removed. The seat stays on your plan until you reduce seats.`, "info");
 }
 
 /* ------------------------------------------------------------------ */
@@ -521,7 +709,7 @@ function applySuccessfulRenewal(s: AppState, target: Target, invoiceId: string, 
       `Charged ${fmtMoney(amount)} for ${periodLabel(newStart, newEnd)}.`
     );
     if (tierDown && sub.tier === "business") {
-      next = closeWorkspace(next, fmtDate(newStart));
+      next = expireWorkspace(next, fmtDate(newStart));
     }
     next = sendEmail(next, "N-12", {
       newPlanName: planName(target.tier, target.interval),
@@ -558,7 +746,7 @@ function endSubscription(s: AppState, reason: "grace_expired" | "cancelled", tem
     ...next,
     invoices: next.invoices.map((i) => (i.status === "open" ? { ...i, status: "void" } : i)),
   };
-  if (sub.tier === "business") next = closeWorkspace(next, fmtDate(s.now));
+  if (sub.tier === "business") next = expireWorkspace(next, fmtDate(s.now));
   next = addHistory(
     next,
     "ended",
@@ -693,6 +881,8 @@ export interface CheckoutInput {
   seats: number;
   card: Card;
   consentText: string;
+  /** Name for the new Business workspace (first Business purchase only). */
+  workspaceName?: string;
 }
 
 /** First subscription (Free -> paid) or resubscribe after ENDED. On-session, charge already succeeded in the UI flow. */
@@ -736,9 +926,7 @@ export function completeSubscription(s: AppState, input: CheckoutInput): AppStat
     periodEnd: end,
   });
   next = r.state;
-  if (input.tier === "business") {
-    next = { ...next, workspace: { ...next.workspace, closed: false } };
-  }
+  if (input.tier === "business") next = activateWorkspace(next, input.workspaceName);
   next = addConsent(next, { source: "checkout", text: input.consentText, amount, interval: input.interval });
   next = addHistory(next, "subscribed", `Subscribed to ${planName(input.tier, input.interval)}`, `Charged ${fmtMoney(amount)} to card ending ${input.card.last4}. Renews ${fmtDate(end)}.`);
   next = sendEmail(next, "N-01", {
@@ -759,6 +947,7 @@ export interface UpgradeInput {
   seats: number;
   consentText: string;
   card?: Card; // when the user added a new card during upgrade
+  workspaceName?: string;
 }
 
 /** Rule C (upgrade now) and rule B (monthly -> annual now). Old plan ends today. */
@@ -812,7 +1001,7 @@ export function upgradeNow(s: AppState, input: UpgradeInput): AppState {
     periodEnd: end,
   });
   next = r.state;
-  if (input.tier === "business") next = { ...next, workspace: { ...next.workspace, closed: false } };
+  if (input.tier === "business") next = activateWorkspace(next, input.workspaceName);
   next = addConsent(next, {
     source: direction === "interval_up" ? "interval_change" : "upgrade",
     text: input.consentText,
@@ -1231,7 +1420,7 @@ function newPaymentRequest(s: AppState, method: PaymentMethodKind, bank?: VaBank
 /** Start a one-time purchase (new plan or "buy next period"): creates a bill with a live Payment ID. */
 export function startOneTimePurchase(
   s: AppState,
-  input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean }
+  input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }
 ): AppState {
   const pe = isOneTimeUser(s) ? prepaidEnd(s)! : null;
   const start = pe && isSameOrAfter(pe, startOfDayUTC(s.now)) ? pe : startOfDayUTC(s.now);
@@ -1246,6 +1435,7 @@ export function startOneTimePurchase(
     tier: input.tier,
     interval: input.interval,
     seats: input.seats,
+    workspaceName: input.workspaceName,
     amount,
     periodStart: start,
     periodEnd: end,
@@ -1340,7 +1530,7 @@ export function confirmPayment(s: AppState, billId: string): AppState {
     prepaid: { tier: bill.tier, periods, source: "one_time" },
     bills: next.bills!.map((b) => (b.id === billId ? { ...b, status: "paid" as const, paidAt: s.now, invoiceId: r.invoice.id } : b)),
   };
-  if (bill.tier === "business") next = { ...next, workspace: { ...next.workspace, closed: false } };
+  if (bill.tier === "business") next = activateWorkspace(next, bill.workspaceName);
   next = addHistory(next, bill.kind === "renewal" ? "bill_paid" : "bill_paid", `${bill.kind === "renewal" ? "Bill paid" : "One-time purchase"}: ${planName(bill.tier, bill.interval)}`, `${fmtMoney(bill.amount)} via ${label}. Active ${periodLabel(bill.periodStart, bill.periodEnd)}. No automatic renewal.`);
   next = sendEmail(next, "N-32", { amount: fmtMoney(bill.amount), planName: planName(bill.tier, bill.interval), newEnd: fmtDate(bill.periodEnd), invoiceNumber: r.invoice.number, last4: label }, `N-32:${bill.payment.paymentId}`);
   return toast(next, `Payment received. ${planName(bill.tier, bill.interval)} is active until ${fmtDate(bill.periodEnd)}.`);
@@ -1351,7 +1541,7 @@ function expireOneTimePlan(s: AppState, pe: string): AppState {
   const tier = s.prepaid!.tier;
   next = addHistory(next, "bill_expired", `${TIER_LABEL[tier]} plan expired`, "The bill was not paid by the expiry date. Account moved to Free (no grace period for one-time plans). Documents kept.");
   next = sendEmail(next, "N-31", { prepaidEnd: fmtDate(pe), tierLabel: TIER_LABEL[tier] }, `N-31:${pe}`);
-  if (tier === "business") next = closeWorkspace(next, fmtDate(pe));
+  if (tier === "business") next = expireWorkspace(next, fmtDate(pe));
   return { ...next, prepaid: null };
 }
 
@@ -1396,13 +1586,13 @@ export function downgradeLosses(s: AppState): string[] {
   const out: string[] = [];
   if (others.length > 0) {
     out.push(
-      `${others.length} team member${others.length === 1 ? "" : "s"} lose access: ${others
+      `${s.workspace.name} becomes read-only for you and ${others.length} team member${others.length === 1 ? "" : "s"} (view and download only): ${others
         .slice(0, 3)
         .map((m) => m.name)
         .join(", ")}${others.length > 3 ? ` and ${others.length - 3} more` : ""}`
     );
   }
-  out.push("Envelopes limited to 50 per month (Business is unlimited)");
+  out.push("Your Individual workspace loses the owner perk: envelopes limited to 50 per month instead of unlimited");
   if (s.workspace.automations > 0) out.push(`${s.workspace.automations} workflow automation${s.workspace.automations === 1 ? "" : "s"} pause`);
   if (s.workspace.retentionPolicies > 0) out.push(`${s.workspace.retentionPolicies} retention polic${s.workspace.retentionPolicies === 1 ? "y" : "ies"} pause`);
   const off: string[] = [];

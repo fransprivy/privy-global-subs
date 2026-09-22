@@ -6,6 +6,16 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
+## Workspaces: Individual, Business, Enterprise (added 22 Sep 2026)
+
+The avatar menu (top right) is the workspace switcher from production: current workspace, other workspaces, Settings, Help centre, Log out. Every page (Home, Envelopes, Billing, Plans) follows the active workspace.
+
+- **One plan per user, shown per workspace.** A user owns at most one Business workspace (R-70). The Individual workspace is Free, Personal, or, for a Business owner, **"Personal, included with Business"**: everything in Personal with unlimited envelopes, at no charge, for as long as the Business plan is live (R-73). Members of other people's Business or Enterprise workspaces keep their own plan untouched (R-71); in those workspaces the billing page says "managed by the owner" and the plans page shows no cards.
+- **Buying Business** (Free or Personal, Global or Indonesia, recurring or one-time) asks for a workspace name, creates the Business workspace, switches into it and shows the welcome step M-15 (R-74). Personal to Business keeps rule C (forfeit or schedule).
+- **Team members** section in the owned Business workspace: invite within the seat count, remove, and Manage seats (R-78).
+- **Expired, not deleted.** When a Business plan ends (cancel, downgrade, grace end, unpaid Indonesian bill) the workspace becomes **read-only**: owner and members can view and download envelopes but not sign, send or upload (banner B-09, R-72). The owner's Individual workspace drops back to Free (or to Personal if a downgrade was scheduled). The owner can **hand over** every envelope to their Individual workspace (R-79) and **reactivate** with a normal Business checkout, which starts a new billing date (R-75). Expired Enterprise workspaces behave the same with a contact-sales note.
+- Engine: `workspaceView`, `allWorkspaces`, `switchWorkspace`, `individualPlan`, `workspaceStatus`, `expireWorkspace`, `activateWorkspace`, `handoverDocuments`, `inviteMember`, `removeMember`. UI: `WorkspaceMenu.tsx`, envelopes page, per-workspace billing (`PerkCard`, `MemberPlanCard`, `TeamMembers`). Scenarios: **Member of someone else's Business**, **Personal subscriber who is also a member**, **Expired Business workspace (owner)**, **Enterprise member**; Business owner now starts in its Business workspace with the perk visible in Individual.
+
 ## Region and Indonesia one-time payments (added 22 Sep 2026)
 
 The workspace has a **Region** (Settings → Workspace preferences, also in the Prototype panel). Every region except Indonesia keeps the Global behaviour: auto-renewal on a card, AUD prices, "after tax". Indonesia switches the same product to IDR prices shown inclusive ("includes PPN": Personal Rp 54,000/month or Rp 395,000/year, Business Rp 99,000 or Rp 725,000 per seat, Enterprise still contact sales) and adds a choice at checkout (M-10):
@@ -82,14 +92,14 @@ The saved card's behaviour also decides the outcome of automatic renewals, unles
 - **Plan facts** from privyid.com/pricing (AUD, after tax): Free 5 envelopes/mo, 5 templates; Personal A$7.49/mo or A$79/yr (600 envelopes/yr); Business A$38.50 per seat/mo or A$396 per seat/yr, unlimited envelopes; Enterprise custom. Full "What changes between plans" table. (`src/lib/catalog.ts`)
 - **Matrix rules A to E**: same plan disabled; Monthly→Annual now with day roll-over (rule B); Personal→Business with **Upgrade now** (forfeit, full price, acknowledgment) or **Upgrade when my plan ends** (rule C, UX-03/04/05); downgrades at period end with loss checklist and undo (rule D, UX-07/09); cancel at period end, two clicks, skippable survey, one-click resume (rule E, UX-11/12).
 - **Billing engine** (`src/lib/engine.ts`): anniversary billing with month-end clamp (31 Jan → 28 Feb → 31 Mar), hourly-sweep semantics run once per simulated day, invoices created at charge time, soft/hard decline classes, 14-day grace with retries Day 3/7/14 and immediate retry on card update, SCA fallback (N-06 → confirm), recovery keeps the anchor, end of grace → Free with documents kept and Business workspace closure, scheduled changes charged at the effective date, consent records, payment-attempt ledger, change history.
-- **Notifications**: emails N-01…N-24 and N-30…N-34 (`src/lib/emails.ts`), banners B-01…B-08 (`src/components/Banners.tsx`), modals M-01…M-14 (`src/components/flows.tsx`, `CheckoutDrawer.tsx`, `onetime.tsx`).
+- **Notifications**: emails N-01…N-24 and N-30…N-34 (`src/lib/emails.ts`), banners B-01…B-09 (`src/components/Banners.tsx`), modals M-01…M-15 (`src/components/flows.tsx`, `CheckoutDrawer.tsx`, `onetime.tsx`).
 - **Screens** mirrored from the production screenshots: Home, Upgrade plan (pricing), Checkout drawer, Settings › Personal info, Settings › Billing, Billing › Change plan (with comparison), plus new Payment method page and Emails page. Responsive down to phone width.
 
 ## Project structure
 
 ```
 src/lib/        types, catalog (plan facts, regions, prices per currency), format (dates/money), engine (state machine), emails, scenarios, guide, store (React context + localStorage)
-src/components/ TopNav, Banners, PlanCards + CompareTable, CheckoutDrawer, flows (all modals), onetime (Indonesia purchase type, one-time checkout, payment detail, convert), payments (card form, 3DS), PrototypeControls, TestGuide, AppShell
+src/components/ TopNav + WorkspaceMenu (switcher), Banners, PlanCards + CompareTable, CheckoutDrawer, flows (all modals), onetime (Indonesia purchase type, one-time checkout, payment detail, convert), payments (card form, 3DS), PrototypeControls, TestGuide, AppShell
 src/app/        / (scenario picker), /home, /plans, /settings/*, /prototype/emails
 ```
 

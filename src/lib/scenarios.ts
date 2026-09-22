@@ -1,7 +1,7 @@
 import { setActiveRegion } from "./catalog";
 import { planPrice } from "./engine";
 import { invoiceNumber } from "./format";
-import type { AppState, Bill, Card, Interval, Invoice, PaidTier, Region, Subscription, Workspace } from "./types";
+import type { AppState, Bill, Card, Interval, Invoice, OtherWorkspace, PaidTier, Region, Subscription, Task, Workspace } from "./types";
 
 export const NOW = "2026-09-10T09:00:00.000Z";
 
@@ -10,7 +10,7 @@ export interface ScenarioMeta {
   title: string;
   persona: string;
   description: string;
-  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia";
+  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia" | "Workspaces";
 }
 
 export const SCENARIOS: ScenarioMeta[] = [
@@ -38,8 +38,8 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "business-owner",
     title: "Business owner, 8 seats",
-    persona: "Frans, Business Monthly × 8 seats (6 in use), workspace 'Privy Product Team', Visa default + Mastercard backup",
-    description: "Workspace with members, automations, retention policies, e-Seal and branding. Add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
+    persona: "Frans, owner of 'Privy Product Team' (Business Monthly × 8 seats, 6 in use), Visa default + Mastercard backup",
+    description: "Owns a Business workspace and gets the owner perk in the Individual workspace (Personal with unlimited envelopes). Switch workspaces from the avatar menu, invite members, add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
     tag: "Downgrade",
   },
   {
@@ -69,6 +69,34 @@ export const SCENARIOS: ScenarioMeta[] = [
     persona: "Frans, two prepaid Personal Yearly units, paid until 10 Nov 2027",
     description: "Bought under the old one-off model. No card, no consent to recurring charges. Must opt in; nothing is charged until prepaid time ends.",
     tag: "Migration",
+  },
+  {
+    id: "business-member-free",
+    title: "Member of someone else's Business",
+    persona: "Frans, Free individual, member of 'Hartono Legal Partners' (owned by Kenny)",
+    description: "Being a member never changes your own plan: the Individual workspace stays Free with 5 envelopes. In Kenny's workspace, envelopes are unlimited and billing is managed by the owner.",
+    tag: "Workspaces",
+  },
+  {
+    id: "business-member-personal",
+    title: "Personal subscriber who is also a member",
+    persona: "Frans, Personal Monthly (50 envelopes), member of Kenny's Business and of PT Privy (Demo) Enterprise",
+    description: "Own Personal plan keeps its 50-envelope limit; the other workspaces do not upgrade it. Buying Business here creates your own workspace and unlocks unlimited envelopes for you.",
+    tag: "Workspaces",
+  },
+  {
+    id: "business-expired",
+    title: "Expired Business workspace (owner)",
+    persona: "Frans, Business Monthly ended 1 Sep after the grace period, 'Privy Product Team' is read-only",
+    description: "The workspace still exists: envelopes can be viewed and downloaded, nothing can be signed or sent, members see the same. Hand the documents over to your Individual workspace, or reactivate the plan.",
+    tag: "Workspaces",
+  },
+  {
+    id: "enterprise-member",
+    title: "Enterprise member, one expired workspace",
+    persona: "Frans, Free individual, member of PT Privy (Demo) Enterprise and of the expired 'PT Privy Demo May 2026'",
+    description: "The switcher from production: Individual plus Enterprise workspaces. Enterprise has no self-serve billing; the expired one is read-only with a contact-sales notice.",
+    tag: "Workspaces",
   },
   {
     id: "id-free",
@@ -111,7 +139,14 @@ const MEMBERS = [
   { id: "m5", name: "Ardhitia W.", email: "ardhitia@privy.id", role: "member" as const },
 ];
 
-function workspace(business: boolean, memberCount = 1): Workspace {
+const BUSINESS_DOCS: Task[] = [
+  { id: "b1", title: "Vendor Agreement · PT Maju Jaya", from: "Kenny Hartono", assignedAgo: "2 days ago", status: "waiting_for_you" },
+  { id: "b2", title: "NDA · Candidate onboarding batch 4", from: "Rima Sari", assignedAgo: "5 days ago", status: "waiting_for_others" },
+  { id: "b3", title: "Q3 Partnership MoU (signed)", from: "Frans", assignedAgo: "3 weeks ago", status: "completed" },
+  { id: "b4", title: "Office lease renewal 2026 (signed)", from: "Frans", assignedAgo: "2 months ago", status: "completed" },
+];
+
+function workspace(business: boolean, memberCount = 1, status: "active" | "expired" = "active"): Workspace {
   return business
     ? {
         name: "Privy Product Team",
@@ -121,10 +156,66 @@ function workspace(business: boolean, memberCount = 1): Workspace {
         eSeal: true,
         branding: true,
         trustedDomain: "privy.id",
-        closed: false,
+        closed: status === "expired",
+        status,
+        createdAt: "2026-07-01T09:00:00.000Z",
+        expiredAt: status === "expired" ? "2026-09-01T00:00:00.000Z" : null,
+        documents: BUSINESS_DOCS,
+        handedOverAt: null,
+        usage: { envelopesSent: 143, templates: 22, contacts: 210 },
       }
-    : { name: "Personal · Frans", members: MEMBERS.slice(0, 1), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true };
+    : { name: "", members: MEMBERS.slice(0, 1), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true, status: "none", documents: [], usage: { envelopesSent: 0, templates: 0, contacts: 0 } };
 }
+
+/** Workspaces other people own and invited Frans to. They never change Frans's own plan (R-71). */
+const OTHER_BUSINESS: OtherWorkspace = {
+  id: "ws_kenny",
+  name: "Hartono Legal Partners",
+  kind: "business",
+  ownerName: "Kenny Hartono",
+  status: "active",
+  initials: "HL",
+  color: "#d97706",
+  memberCount: 5,
+  usage: { envelopesSent: 88, templates: 12, contacts: 140 },
+  documents: [
+    { id: "o1", title: "Retainer Agreement · Hartono Legal", from: "Kenny Hartono", assignedAgo: "1 day ago", status: "waiting_for_you" },
+    { id: "o2", title: "Client intake form · Sari", from: "Kenny Hartono", assignedAgo: "6 days ago", status: "completed" },
+  ],
+};
+const ENTERPRISE_ACTIVE: OtherWorkspace = {
+  id: "ws_ent_demo",
+  name: "PT Privy (Demo)",
+  kind: "enterprise",
+  ownerName: "PT Privy Identitas Digital",
+  status: "active",
+  contractEnd: "2027-03-31T00:00:00.000Z",
+  initials: "PD",
+  color: "#2b2b2f",
+  memberCount: 120,
+  usage: { envelopesSent: 2140, templates: 64, contacts: 3100 },
+  documents: [
+    { id: "e1", title: "Enterprise Order Form (Draft)", from: "Kenny Hartono", assignedAgo: "3 days ago", status: "waiting_for_others" },
+    { id: "e2", title: "Master Services Agreement 2026", from: "Legal", assignedAgo: "1 month ago", status: "completed" },
+  ],
+};
+const ENTERPRISE_EXPIRED: OtherWorkspace = {
+  id: "ws_ent_may",
+  name: "PT Privy Demo May 2026",
+  kind: "enterprise",
+  ownerName: "PT Privy Identitas Digital",
+  status: "expired",
+  expiredAt: "2026-08-31T00:00:00.000Z",
+  contractEnd: "2026-08-31T00:00:00.000Z",
+  initials: "PP",
+  color: "#f97316",
+  memberCount: 40,
+  usage: { envelopesSent: 610, templates: 20, contacts: 800 },
+  documents: [
+    { id: "x1", title: "Pilot evaluation report (signed)", from: "Frans", assignedAgo: "3 months ago", status: "completed" },
+    { id: "x2", title: "Data processing addendum (signed)", from: "Legal", assignedAgo: "4 months ago", status: "completed" },
+  ],
+};
 
 const VISA: Card = { id: "card_visa4242", brand: "visa", last4: "4242", expMonth: 12, expYear: 2027, behavior: "success", addedAt: "2026-08-10T09:00:00.000Z" };
 const SOFT_VISA: Card = { id: "card_visa9995", brand: "visa", last4: "9995", expMonth: 11, expYear: 2027, behavior: "soft_decline", addedAt: "2026-07-03T09:00:00.000Z" };
@@ -149,6 +240,8 @@ function baseState(scenarioId: string, region: Region = "AU"): AppState {
     consents: [],
     sentKeys: [],
     workspace: workspace(false),
+    otherWorkspaces: [],
+    activeWorkspace: "individual",
     usage: { envelopesSent: 1, templates: 0, contacts: 0 },
     tasks: [
       { id: "t1", title: "Privacy Notice Privy Global (Clean) (270826)", from: "Frans", assignedAgo: "1 week ago", status: "waiting_for_you" },
@@ -244,6 +337,8 @@ export function buildScenario(id: string): AppState {
         card: VISA,
         backupCards: [MASTERCARD],
         workspace: workspace(true, 6),
+        otherWorkspaces: [ENTERPRISE_ACTIVE],
+        activeWorkspace: "business",
         subscription: sub({ tier: "business", interval: "monthly", seats: 8, currentPeriodStart: start, currentPeriodEnd: end, anchorDay: 1, renewalCount: 2, createdAt: "2026-07-01T09:00:00.000Z" }),
         usage: { envelopesSent: 143, templates: 22, contacts: 210 },
         invoices: [
@@ -312,6 +407,7 @@ export function buildScenario(id: string): AppState {
         ...s,
         card: VISA,
         workspace: workspace(true, 3),
+        activeWorkspace: "business",
         subscription: sub({
           tier: "business",
           interval: "monthly",
@@ -383,6 +479,69 @@ export function buildScenario(id: string): AppState {
         sentKeys: ["N-17:golive"],
       };
     }
+    case "business-member-free":
+      return { ...s, otherWorkspaces: [OTHER_BUSINESS] };
+    case "business-member-personal": {
+      const start = "2026-09-10T00:00:00.000Z";
+      return {
+        ...s,
+        card: VISA,
+        otherWorkspaces: [OTHER_BUSINESS, ENTERPRISE_ACTIVE],
+        subscription: sub({ tier: "personal", interval: "monthly", currentPeriodStart: start, currentPeriodEnd: "2026-10-10T00:00:00.000Z", anchorDay: 10, renewalCount: 1, createdAt: "2026-08-10T09:00:00.000Z" }),
+        usage: { envelopesSent: 47, templates: 4, contacts: 23 },
+        invoices: [
+          paidInvoice(2, "2026-09-10T00:00:00.000Z", "personal", "monthly", 1, start, "2026-10-10T00:00:00.000Z"),
+          paidInvoice(1, "2026-08-10T09:00:00.000Z", "personal", "monthly", 1, "2026-08-10T00:00:00.000Z", start),
+        ],
+        history: [
+          { id: "h2", at: "2026-09-10T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$7.49 for Sep 10, 2026 to Oct 10, 2026." },
+          { id: "h1", at: "2026-08-10T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly", detail: "Charged A$7.49 to card ending 4242." },
+        ],
+        consents: [{ id: "c1", at: "2026-08-10T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$7.49 to my card every month starting today until I cancel.", amount: 7.49, interval: "monthly", ip: "103.28.114.20" }],
+      };
+    }
+    case "business-expired": {
+      const start = "2026-07-18T00:00:00.000Z";
+      const due = "2026-08-18T00:00:00.000Z";
+      return {
+        ...s,
+        card: SOFT_VISA,
+        workspace: workspace(true, 4, "expired"),
+        activeWorkspace: "business",
+        subscription: sub({
+          tier: "business",
+          interval: "monthly",
+          seats: 5,
+          currentPeriodStart: start,
+          currentPeriodEnd: due,
+          anchorDay: 18,
+          status: "ended",
+          endedAt: "2026-09-01T00:00:00.000Z",
+          pastDueSince: "2026-08-18T00:05:00.000Z",
+          retryCount: 3,
+          renewalCount: 1,
+          hardDeclined: false,
+          createdAt: "2026-06-18T09:00:00.000Z",
+        }),
+        usage: { envelopesSent: 3, templates: 2, contacts: 30 },
+        invoices: [
+          paidInvoice(3, "2026-08-18T00:05:00.000Z", "business", "monthly", 5, due, "2026-09-18T00:00:00.000Z", "void"),
+          paidInvoice(2, start, "business", "monthly", 5, start, due),
+          paidInvoice(1, "2026-06-18T09:00:00.000Z", "business", "monthly", 5, "2026-06-18T00:00:00.000Z", start),
+        ],
+        history: [
+          { id: "h4", at: "2026-09-01T00:00:00.000Z", type: "workspace_expired", title: "Privy Product Team is now read-only", detail: "The Business plan ended on Sep 1, 2026. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to Free." },
+          { id: "h3", at: "2026-09-01T00:00:00.000Z", type: "ended", title: "Business Monthly ended: payment not received", detail: "Grace period of 14 days ended. Documents kept." },
+          { id: "h2", at: "2026-08-18T00:05:00.000Z", type: "renewal_failed", title: "Renewal charge of A$192.50 failed", detail: "insufficient_funds. Retried on Aug 21, Aug 25 and Sep 1." },
+          { id: "h1", at: "2026-06-18T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 5 seats" },
+        ],
+        emails: [
+          { id: "e1", templateId: "N-09", at: "2026-09-01T00:00:00.000Z", to: USER.email, subject: "Your Privy Business plan has ended", body: ["We could not collect A$192.50 during the 14-day grace period, so Business Monthly ended on Sep 1, 2026.", "Privy Product Team is now read-only: you and your 3 members can view and download envelopes but cannot sign or send. Reactivate any time, or hand the documents over to your Individual workspace."], cta: { label: "Reactivate Business", href: "/settings/billing" } },
+        ],
+      };
+    }
+    case "enterprise-member":
+      return { ...s, otherWorkspaces: [ENTERPRISE_ACTIVE, ENTERPRISE_EXPIRED] };
     case "id-free":
       return s;
     case "id-onetime-card": {
@@ -417,6 +576,7 @@ export function buildScenario(id: string): AppState {
       return {
         ...s,
         workspace: workspace(true, 3),
+        activeWorkspace: "business",
         prepaid: { tier: "business", source: "one_time", periods: [{ start, end, tier: "business", interval: "monthly", purchasedAt: "2026-08-12T09:00:00.000Z", seats: 3, paidWith: "qris", paidWithLabel: "QRIS" }] },
         bills: [bill],
         usage: { envelopesSent: 41, templates: 8, contacts: 62 },
