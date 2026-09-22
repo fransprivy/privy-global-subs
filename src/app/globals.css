@@ -58,6 +58,7 @@ h1, h2, h3, .font-display {
   .btn-primary,
   .btn-secondary,
   .btn-ghost,
+  .btn-danger,
   .btn-danger-outline {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed;
   }
@@ -72,6 +73,9 @@ h1, h2, h3, .font-display {
   }
   .btn-danger-outline {
     @apply border border-danger/40 bg-white text-danger hover:bg-danger-tint;
+  }
+  .btn-danger {
+    @apply bg-danger text-white hover:opacity-90 disabled:opacity-50;
   }
   .card {
     @apply rounded-[var(--radius-card)] border border-line bg-white;

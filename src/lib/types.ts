@@ -176,6 +176,7 @@ export type HistoryType =
   | "handover"
   | "member_invited"
   | "member_removed"
+  | "workspace_left"
   | "note";
 
 export interface HistoryEvent {

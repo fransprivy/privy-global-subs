@@ -42,6 +42,7 @@ interface StoreApi {
   handoverDocuments: () => void;
   inviteMember: (name: string, email: string) => void;
   removeMember: (id: string) => void;
+  leaveWorkspace: (id: string) => void;
   dismissWelcome: () => void;
   setPrefs: (prefs: Partial<WorkspacePrefs>) => void;
   startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }) => void;
@@ -170,6 +171,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       handoverDocuments: () => update((s) => E.handoverDocuments(s)),
       inviteMember: (name, email) => update((s) => E.inviteMember(s, name, email)),
       removeMember: (id) => update((s) => E.removeMember(s, id)),
+      leaveWorkspace: (id) => update((s) => E.leaveWorkspace(s, id)),
       dismissWelcome: () => update((s) => ({ ...s, ui: { ...s.ui, welcomeBusiness: false } })),
       setPrefs: (prefs) => update((s) => ({ ...s, prefs: { timezone: "auto", dateFormat: "dd MMM yyyy", ...(s.prefs ?? {}), ...prefs } })),
       startOneTimePurchase: (input) => update((s) => E.startOneTimePurchase(s, input)),

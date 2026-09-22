@@ -524,6 +524,20 @@ export function handoverDocuments(s: AppState): AppState {
   return toast(next, `${docs.length} document${docs.length === 1 ? "" : "s"} moved to your Individual workspace.`);
 }
 
+/** Member leaves someone else's workspace. Their documents there stay with the workspace owner (R-80). */
+export function leaveWorkspace(s: AppState, id: string): AppState {
+  const w = (s.otherWorkspaces ?? []).find((o) => o.id === id);
+  if (!w) return s;
+  const docs = w.documents.length;
+  let next: AppState = {
+    ...s,
+    otherWorkspaces: (s.otherWorkspaces ?? []).filter((o) => o.id !== id),
+    activeWorkspace: "individual",
+  };
+  next = addHistory(next, "workspace_left", `You left ${w.name}`, `${docs} document${docs === 1 ? "" : "s"} handed over to the workspace owner, ${w.ownerName}. Your own plan is unchanged.`);
+  return toast(next, `You left ${w.name}. Your documents there now belong to ${w.ownerName}.`, "info");
+}
+
 export function inviteMember(s: AppState, name: string, email: string): AppState {
   const sub = activeSubscription(s);
   const seats = currentSeats(s);

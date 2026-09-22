@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { activeWorkspaceId, allWorkspaces, type WorkspaceView } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
+import { useFlows } from "./flows";
 import { IconCheck, IconGear, IconInfo } from "./Icons";
 import { HeartAvatar } from "./Logo";
 import { Spec } from "./ui";
@@ -12,6 +13,7 @@ import { Spec } from "./ui";
 /** Avatar menu: workspace switcher (current + others), Settings, Help centre, Log out. Mirrors production (R-76). */
 export function WorkspaceMenu() {
   const { s, api } = useAppState();
+  const flows = useFlows();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -50,6 +52,17 @@ export function WorkspaceMenu() {
         <div className="absolute right-0 top-[52px] z-[60] w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-white shadow-2xl animate-fade" role="menu">
           <p className="px-5 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">Current workspace</p>
           <WorkspaceRow w={cur} current onClick={() => pick(cur.id)} />
+          {cur.role === "member" && (
+            <button
+              className="mx-5 mb-2 text-xs font-medium text-danger underline underline-offset-2"
+              onClick={() => {
+                setOpen(false);
+                flows.open({ type: "leave", id: cur.id });
+              }}
+            >
+              Leave this workspace
+            </button>
+          )}
           {others.length > 0 && (
             <>
               <div className="border-t border-line" />

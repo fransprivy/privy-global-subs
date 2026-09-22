@@ -12,6 +12,7 @@ import {
   CONFIG,
   currentSeats,
   downgradeLosses,
+  individualPlan,
   isIndonesia,
   isOneTimeUser,
   pendingPayment,
@@ -44,6 +45,7 @@ export type Flow =
   | { type: "paymentDetail"; billId: string }
   | { type: "convert" }
   | { type: "invite" }
+  | { type: "leave"; id: string }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
   | { type: "handover" };
@@ -97,6 +99,8 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <ConvertModal close={close} />;
     case "invite":
       return <InviteModal close={close} />;
+    case "leave":
+      return <LeaveWorkspaceModal close={close} id={flow.id} />;
     case "authenticate":
       return <AuthenticateFlow close={close} />;
     case "optin":
@@ -1110,6 +1114,63 @@ function InviteModal({ close }: { close: () => void }) {
       </div>
     </Modal>
   );
+}
+
+/** M-16: member leaves someone else's Business or Enterprise workspace (R-80). */
+function LeaveWorkspaceModal({ close, id }: { close: () => void; id: string }) {
+  const { s, api } = useAppState();
+  const router = useRouter();
+  const w = (s.otherWorkspaces ?? []).find((o) => o.id === id);
+  const [ack, setAck] = useState(false);
+  if (!w) {
+    close();
+    return null;
+  }
+  const mine = w.documents.filter((d) => d.from === s.user.name).length;
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Leave ${w.name}?`}
+      spec="M-16"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Stay
+          </button>
+          <button
+            className="btn-danger"
+            disabled={!ack}
+            onClick={() => {
+              api.leaveWorkspace(w.id);
+              close();
+              router.push("/home");
+            }}
+          >
+            Leave workspace
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm text-ink-2">
+        <p>
+          You will lose access to <strong className="text-ink">{w.name}</strong> and its {w.documents.length} envelope{w.documents.length === 1 ? "" : "s"}. The seat goes back to {w.ownerName}, who can invite someone else.
+        </p>
+        <p>
+          Every document you created or signed in this workspace ({mine} of them) is <strong className="text-ink">handed over to the workspace owner, {w.ownerName}</strong>. They are not copied to your Individual workspace. Download anything you need before leaving.
+        </p>
+        <p className="text-xs text-muted">Your own plan ({individualPlanLabel(s)}) is not affected. You can be invited again later. <Spec id="R-80" /></p>
+        <Checkbox checked={ack} onChange={setAck} id="leave-ack">
+          I understand my documents in {w.name} stay with {w.ownerName}.
+        </Checkbox>
+      </div>
+    </Modal>
+  );
+}
+
+function individualPlanLabel(s: ReturnType<typeof useAppState>["s"]): string {
+  const p = individualPlan(s);
+  return p === "free" ? "Free" : p === "personal" ? "Personal" : "Personal, included with Business";
 }
 
 /** M-15: shown once after the Business workspace is created. */

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { workspaceView } from "@/lib/engine";
+import { individualPlan, workspaceView } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
 import { PrivyLogo } from "./Logo";
 import { IconBell, IconChat, IconEnvelope, IconGear, IconHome, IconSparkle, IconTemplates } from "./Icons";
@@ -23,11 +23,14 @@ export function TopNav() {
   const limit = ws.envelopeLimit;
   const left = limit === null ? null : Math.max(0, limit - ws.usage.envelopesSent);
   // CTA per workspace (R-77): Individual Free/Personal → Upgrade; owner perk → Included with Business; owned Business → Manage / Reactivate; member → none.
+  // "Upgrade plan" only when there is something to upgrade: Free, or a Personal plan with no sends left (UX-27).
+  // Owned Business: Manage / Reactivate. Members and the owner-perk Individual workspace get no CTA.
+  const plan = individualPlan(s);
   const cta =
     ws.kind === "individual"
-      ? ws.planLabel.includes("included")
-        ? { label: "Included with Business", href: "/settings/billing" }
-        : { label: "Upgrade plan", href: "/plans" }
+      ? plan === "free" || (plan === "personal" && left === 0)
+        ? { label: "Upgrade plan", href: "/plans" }
+        : null
       : ws.kind === "business" && ws.role === "owner"
         ? ws.status === "expired"
           ? { label: "Reactivate plan", href: "/settings/billing" }
@@ -54,11 +57,16 @@ export function TopNav() {
           })}
         </nav>
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <span className={`whitespace-nowrap text-[15px] text-ink-2 ${(s.ui.guideOpen ?? true) ? "hidden 2xl:inline" : "hidden sm:inline"}`}>
-            {ws.readOnly ? "Read-only workspace" : left === null ? "Unlimited sends" : `${left} sends left`}
-          </span>
+          {/* Quota is always visible unless the workspace has unlimited envelopes (UX-27). */}
+          {ws.readOnly ? (
+            <span className="whitespace-nowrap text-[15px] text-ink-2">Read-only</span>
+          ) : left !== null ? (
+            <span className={`whitespace-nowrap text-[15px] ${left === 0 ? "font-semibold text-danger" : "text-ink-2"}`} title={`${ws.usage.envelopesSent} of ${limit} envelopes used this month`}>
+              {left} send{left === 1 ? "" : "s"} left
+            </span>
+          ) : null}
           {cta && (
-            <Link href={cta.href} className={`${cta.label === "Included with Business" ? "btn-secondary" : "btn-primary"} !py-2 text-[15px] whitespace-nowrap`}>
+            <Link href={cta.href} className="btn-primary !py-2 text-[15px] whitespace-nowrap">
               {cta.label}
             </Link>
           )}

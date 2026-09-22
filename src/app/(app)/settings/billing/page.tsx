@@ -163,6 +163,7 @@ function PerkCard() {
 /** Member of someone else's Business or Enterprise workspace: nothing to buy here (R-71). */
 function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
   const { s } = useAppState();
+  const flows = useFlows();
   const other = (s.otherWorkspaces ?? []).find((w) => w.id === ws.id);
   return (
     <section className="card overflow-hidden">
@@ -196,6 +197,9 @@ function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
           <Link href="/plans" className="btn-ghost">
             Plans for your Individual workspace
           </Link>
+          <button className="btn-danger-outline" onClick={() => flows.open({ type: "leave", id: ws.id })}>
+            Leave workspace
+          </button>
         </div>
       </div>
     </section>

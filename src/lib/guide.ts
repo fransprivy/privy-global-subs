@@ -414,6 +414,15 @@ export const GUIDES: Record<string, Guide> = {
         check: (s, p) => s.activeWorkspace === "ws_kenny" && p.startsWith("/plans"),
       },
       {
+        id: "bmf-leave",
+        title: "Leave Kenny's workspace",
+        do: "In Hartono Legal Partners: avatar menu → 'Leave this workspace' (or Billing → Leave workspace) → tick the acknowledgment → Leave.",
+        expect: "You land in your Individual workspace; Kenny's workspace is gone from the switcher. The modal explained that your documents there stay with the owner. Your Free plan is untouched.",
+        refs: ["M-16", "R-80"],
+        note: "Optional. Reset the scenario afterwards if you want Kenny's workspace back for step 3.",
+        check: (s) => has(s, "workspace_left"),
+      },
+      {
         id: "bmf-3",
         title: "Buy your own Business plan",
         do: "Switch to Individual → Upgrade plan → Upgrade to Business → 2 seats → name it → card 4242 → Pay.",
