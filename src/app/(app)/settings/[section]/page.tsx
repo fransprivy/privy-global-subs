@@ -10,7 +10,6 @@ const TITLES: Record<string, [string, string]> = {
   "app-preferences": ["App preferences", "Language, time zone and defaults"],
   activities: ["Activities", "Everything that happened in your account"],
   contacts: ["Contacts", "People you send envelopes to"],
-  "workspace-preferences": ["Workspace preferences", "Roles, defaults and branding"],
   "cloud-connections": ["Cloud connections", "Google Drive and OneDrive"],
   privypal: ["PrivyPal (AI Assistant)", "Document intelligence settings"],
   "document-categories": ["Document categories", "Organise your documents"],

@@ -1,6 +1,7 @@
+import { setActiveRegion } from "./catalog";
 import { planPrice } from "./engine";
 import { invoiceNumber } from "./format";
-import type { AppState, Card, Interval, Invoice, PaidTier, Subscription, Workspace } from "./types";
+import type { AppState, Bill, Card, Interval, Invoice, PaidTier, Region, Subscription, Workspace } from "./types";
 
 export const NOW = "2026-09-10T09:00:00.000Z";
 
@@ -9,7 +10,7 @@ export interface ScenarioMeta {
   title: string;
   persona: string;
   description: string;
-  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel";
+  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia";
 }
 
 export const SCENARIOS: ScenarioMeta[] = [
@@ -69,6 +70,34 @@ export const SCENARIOS: ScenarioMeta[] = [
     description: "Bought under the old one-off model. No card, no consent to recurring charges. Must opt in; nothing is charged until prepaid time ends.",
     tag: "Migration",
   },
+  {
+    id: "id-free",
+    title: "Indonesia: Free user",
+    persona: "Frans, region Indonesia, Free plan, prices in IDR",
+    description: "Same Free account with the workspace region set to Indonesia. Buying a plan asks: pay once (QRIS, card, virtual account) or auto-renew on a card. Change the region in Settings › Workspace preferences.",
+    tag: "Indonesia",
+  },
+  {
+    id: "id-onetime-card",
+    title: "Indonesia: one-time plan, bill due in 5 days",
+    persona: "Frans, Personal Monthly paid once by card, active until 15 Sep, bill issued 8 Sep",
+    description: "The T-7 bill is waiting. Pay it with QRIS, card or virtual account, ignore it and watch the plan end with no grace, or take the offer to switch to auto-renewal (shown because the last payment was by card).",
+    tag: "Indonesia",
+  },
+  {
+    id: "id-onetime-qris",
+    title: "Indonesia: Business paid by QRIS, expires in 2 days",
+    persona: "Frans, Business Monthly × 3 seats paid once via QRIS, active until 12 Sep",
+    description: "Reminder emails went out at T-3. No auto-renewal offer on the banner (not a card payer), but it is still findable under Billing › Payment methods. Let it expire to see the workspace close on the expiry date.",
+    tag: "Indonesia",
+  },
+  {
+    id: "id-recurring",
+    title: "Indonesia: auto-renewal on a card",
+    persona: "Frans, Personal Monthly auto-renewal since 5 Aug, Rp 54,000 on 5 Oct",
+    description: "An Indonesian subscriber who chose auto-renewal. Behaves exactly like the Global subscription (grace period, retries, backup cards) with IDR prices and PPN-inclusive display.",
+    tag: "Indonesia",
+  },
 ];
 
 const USER = { name: "Frans", email: "frans.privy@gmail.com", maskedEmail: "fr*******vy@gmail.com" };
@@ -101,10 +130,13 @@ const VISA: Card = { id: "card_visa4242", brand: "visa", last4: "4242", expMonth
 const SOFT_VISA: Card = { id: "card_visa9995", brand: "visa", last4: "9995", expMonth: 11, expYear: 2027, behavior: "soft_decline", addedAt: "2026-07-03T09:00:00.000Z" };
 const MASTERCARD: Card = { id: "card_mc4444", brand: "mastercard", last4: "4444", expMonth: 6, expYear: 2028, behavior: "success", addedAt: "2026-08-15T09:00:00.000Z" };
 
-function baseState(scenarioId: string): AppState {
+function baseState(scenarioId: string, region: Region = "AU"): AppState {
   return {
     version: 3,
     scenarioId,
+    region,
+    prefs: { timezone: region === "ID" ? "Asia/Jakarta (WIB, UTC+7)" : "auto", dateFormat: "dd MMM yyyy" },
+    bills: [],
     now: NOW,
     user: USER,
     subscription: null,
@@ -169,7 +201,9 @@ function fmt(iso: string): string {
 }
 
 export function buildScenario(id: string): AppState {
-  const s = baseState(id);
+  const region: Region = id.startsWith("id-") ? "ID" : "AU";
+  setActiveRegion(region); // prices in the seed data must be in the scenario's currency
+  const s = baseState(id, region);
   switch (id) {
     case "personal-monthly": {
       const start = "2026-09-10T00:00:00.000Z";
@@ -347,6 +381,73 @@ export function buildScenario(id: string): AppState {
           { id: "e1", templateId: "N-17", at: "2026-09-02T09:00:00.000Z", to: USER.email, subject: "Keep your Privy Personal going after Nov 10, 2027", body: ["Your prepaid plan runs until Nov 10, 2027. Privy now offers automatic renewal so you never lose access.", "Turn it on in one step; we only charge on Nov 10, 2027. If you do nothing, your account moves to Free on Nov 10, 2027."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=optin" } },
         ],
         sentKeys: ["N-17:golive"],
+      };
+    }
+    case "id-free":
+      return s;
+    case "id-onetime-card": {
+      const start = "2026-08-15T00:00:00.000Z";
+      const end = "2026-09-15T00:00:00.000Z";
+      const nextEnd = "2026-10-15T00:00:00.000Z";
+      const amount = planPrice("personal", "monthly", 1);
+      const bill: Bill = { id: "bill_1", kind: "renewal", tier: "personal", interval: "monthly", seats: 1, amount, periodStart: end, periodEnd: nextEnd, issuedAt: "2026-09-08T00:00:00.000Z", dueAt: end, status: "awaiting", payment: null };
+      return {
+        ...s,
+        card: VISA,
+        prepaid: { tier: "personal", source: "one_time", periods: [{ start, end, tier: "personal", interval: "monthly", purchasedAt: "2026-08-15T09:00:00.000Z", seats: 1, paidWith: "card", paidWithLabel: "Card ending 4242" }] },
+        bills: [bill],
+        usage: { envelopesSent: 9, templates: 3, contacts: 14 },
+        invoices: [{ ...paidInvoice(1, "2026-08-15T09:00:00.000Z", "personal", "monthly", 1, start, end), method: "Card ending 4242" }],
+        history: [
+          { id: "h2", at: "2026-09-08T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Personal Monthly for Sep 15, 2026 to Oct 15, 2026", detail: "Rp 54,000, pay before Sep 15, 2026 to continue without interruption. No automatic charge." },
+          { id: "h1", at: "2026-08-15T09:00:00.000Z", type: "bill_paid", title: "Paid Personal Monthly (one-time)", detail: "Rp 54,000 by Card ending 4242. Active Aug 15, 2026 to Sep 15, 2026. Card saved for future bills." },
+        ],
+        emails: [
+          { id: "e1", templateId: "N-30", at: "2026-09-08T00:00:00.000Z", to: USER.email, subject: "Your Privy Personal Monthly bill: pay by Sep 15, 2026", body: ["Your plan is active until Sep 15, 2026. To keep it running to Oct 15, 2026, pay Rp 54,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 15, 2026 and the account moves to Free."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+        ],
+        sentKeys: [`N-30:${end}`],
+      };
+    }
+    case "id-onetime-qris": {
+      const start = "2026-08-12T00:00:00.000Z";
+      const end = "2026-09-12T00:00:00.000Z";
+      const nextEnd = "2026-10-12T00:00:00.000Z";
+      const amount = planPrice("business", "monthly", 3);
+      const bill: Bill = { id: "bill_1", kind: "renewal", tier: "business", interval: "monthly", seats: 3, amount, periodStart: end, periodEnd: nextEnd, issuedAt: "2026-09-05T00:00:00.000Z", dueAt: end, status: "awaiting", payment: null };
+      return {
+        ...s,
+        workspace: workspace(true, 3),
+        prepaid: { tier: "business", source: "one_time", periods: [{ start, end, tier: "business", interval: "monthly", purchasedAt: "2026-08-12T09:00:00.000Z", seats: 3, paidWith: "qris", paidWithLabel: "QRIS" }] },
+        bills: [bill],
+        usage: { envelopesSent: 41, templates: 8, contacts: 62 },
+        invoices: [{ ...paidInvoice(1, "2026-08-12T09:00:00.000Z", "business", "monthly", 3, start, end), method: "QRIS" }],
+        history: [
+          { id: "h2", at: "2026-09-05T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Business Monthly for Sep 12, 2026 to Oct 12, 2026", detail: "Rp 297,000, pay before Sep 12, 2026 to continue without interruption. No automatic charge." },
+          { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "Paid Business Monthly × 3 seats (one-time)", detail: "Rp 297,000 by QRIS. Active Aug 12, 2026 to Sep 12, 2026." },
+        ],
+        emails: [
+          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left to pay your Privy bill", body: ["Your Business Monthly plan ends on Sep 12, 2026 unless the Rp 297,000 bill is paid before then.", "Pay with QRIS, card or virtual account. There is no grace period for one-time plans."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+          { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Business Monthly bill: pay by Sep 12, 2026", body: ["Your plan is active until Sep 12, 2026. To keep it running to Oct 12, 2026, pay Rp 297,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 12, 2026 and the workspace is closed."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+        ],
+        sentKeys: [`N-30:${end}`, `N-30b:T3:${end}`],
+      };
+    }
+    case "id-recurring": {
+      const start = "2026-09-05T00:00:00.000Z";
+      return {
+        ...s,
+        card: VISA,
+        subscription: sub({ tier: "personal", interval: "monthly", currentPeriodStart: start, currentPeriodEnd: "2026-10-05T00:00:00.000Z", anchorDay: 5, renewalCount: 1, createdAt: "2026-08-05T09:00:00.000Z" }),
+        usage: { envelopesSent: 12, templates: 4, contacts: 23 },
+        invoices: [
+          { ...paidInvoice(2, "2026-09-05T00:00:00.000Z", "personal", "monthly", 1, start, "2026-10-05T00:00:00.000Z"), method: "Card ending 4242" },
+          { ...paidInvoice(1, "2026-08-05T09:00:00.000Z", "personal", "monthly", 1, "2026-08-05T00:00:00.000Z", start), method: "Card ending 4242" },
+        ],
+        history: [
+          { id: "h2", at: "2026-09-05T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged Rp 54,000 for Sep 5, 2026 to Oct 5, 2026." },
+          { id: "h1", at: "2026-08-05T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly (auto-renewal)", detail: "Charged Rp 54,000 to card ending 4242." },
+        ],
+        consents: [{ id: "c1", at: "2026-08-05T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge Rp 54,000 to my card every month starting today until I cancel.", amount: 54000, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "free":

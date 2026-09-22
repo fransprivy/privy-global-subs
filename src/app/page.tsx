@@ -14,6 +14,7 @@ const TAG_STYLE: Record<string, string> = {
   Failure: "bg-danger-tint text-danger",
   Migration: "bg-gold-tint text-gold",
   Cancel: "bg-[#eeeeee] text-ink-2",
+  Indonesia: "bg-[#fde8e8] text-[#b3261e]",
 };
 
 export default function ScenarioPicker() {

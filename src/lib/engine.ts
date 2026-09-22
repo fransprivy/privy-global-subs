@@ -1,10 +1,19 @@
 import {
   ANNUAL_SAVINGS,
+  BILL_LEAD_DAYS,
+  BILL_REMINDER_DAYS,
   BUSINESS_ONLY_FEATURES,
   INTERVAL_LABEL,
+  PAYMENT_ID_VALID_HOURS,
   PRICES,
+  regionMeta,
   TIER_LABEL,
   TIER_RANK,
+  VA_BANKS,
+  type PaymentMethodKind,
+  type PurchaseType,
+  type Region,
+  type VaBank,
 } from "./catalog";
 import { renderEmail, type EmailCtx } from "./emails";
 import {
@@ -24,6 +33,7 @@ import {
 import type {
   AppState,
   AttemptOutcome,
+  Bill,
   Card,
   CardBehavior,
   ChangeKind,
@@ -49,6 +59,10 @@ export const CONFIG = {
   changeReminderLeadDays: 3,
   migrationReminderDays: [30, 7, 1],
   smartDefaultThresholdDays: 14,
+  /** Indonesia one-time plans: bill issued this many days before expiry; reminders at these days-left; no grace. */
+  billLeadDays: BILL_LEAD_DAYS,
+  billReminderDays: BILL_REMINDER_DAYS,
+  paymentIdValidHours: PAYMENT_ID_VALID_HOURS,
 };
 
 /* ------------------------------------------------------------------ */
@@ -92,6 +106,44 @@ export function periodEnd(startIso: string, interval: Interval, anchorDay: numbe
 /* ------------------------------------------------------------------ */
 /* Derived state                                                       */
 /* ------------------------------------------------------------------ */
+export function regionOf(s: AppState): Region {
+  return s.region ?? "AU";
+}
+export function isIndonesia(s: AppState): boolean {
+  return regionMeta(regionOf(s)).market === "indonesia";
+}
+export function isOneTimeUser(s: AppState): boolean {
+  return !activeSubscription(s) && !!s.prepaid && s.prepaid.source === "one_time" && !!prepaidEnd(s);
+}
+/** Purchase types offered at checkout for this region. */
+export function purchaseTypesFor(s: AppState): PurchaseType[] {
+  return isIndonesia(s) ? ["recurring", "one_time"] : ["recurring"];
+}
+/** Payment methods per purchase type. Recurring is card only everywhere; Indonesia one-time adds QRIS and virtual accounts. */
+export function paymentMethodsFor(s: AppState, purchase: PurchaseType): PaymentMethodKind[] {
+  if (purchase === "recurring" || !isIndonesia(s)) return ["card"];
+  return ["qris", "card", "va"];
+}
+/** The open bill (awaiting or with a live Payment ID), if any. */
+export function openBill(s: AppState): Bill | null {
+  return (s.bills ?? []).find((b) => b.status === "awaiting" || b.status === "pending_payment") ?? null;
+}
+export function pendingPayment(s: AppState): Bill | null {
+  return (s.bills ?? []).find((b) => b.status === "pending_payment") ?? null;
+}
+/** Phase 1: only one-time users whose last payment was by card see the convert-to-auto-renewal offer. */
+export function convertEligible(s: AppState): boolean {
+  if (!isOneTimeUser(s)) return false;
+  const pe = prepaidEnd(s)!;
+  const last = s.prepaid!.periods.find((p) => p.end === pe);
+  return last?.paidWith === "card";
+}
+export function methodLabel(m: PaymentMethodKind, bank?: VaBank, last4?: string): string {
+  if (m === "qris") return "QRIS";
+  if (m === "va") return `Virtual Account ${bank ?? ""}`.trim();
+  return last4 ? `Card ending ${last4}` : "Card";
+}
+
 export function activeSubscription(s: AppState): Subscription | null {
   return s.subscription && s.subscription.status !== "ended" ? s.subscription : null;
 }
@@ -120,6 +172,14 @@ export function currentInterval(s: AppState): Interval | null {
     }
   }
   return null;
+}
+
+export function currentSeats(s: AppState): number {
+  const sub = activeSubscription(s);
+  if (sub) return sub.seats;
+  const pe = prepaidEnd(s);
+  if (s.prepaid && pe) return s.prepaid.periods.find((p) => p.end === pe)?.seats ?? 1;
+  return 1;
 }
 
 export function currentPlanName(s: AppState): string {
@@ -516,8 +576,28 @@ export function runSweep(s: AppState): AppState {
   let next = s;
   const today = startOfDayUTC(next.now);
 
+  // Expire Payment IDs that ran out (a day has passed since they were generated).
+  next = expireStalePayments(next);
+
+  // One-time (Indonesia) users: bill before expiry, no grace.
+  if (!activeSubscription(next) && next.prepaid?.source === "one_time") {
+    const pe = prepaidEnd(next);
+    if (pe) {
+      const dl = daysBetween(today, pe);
+      const bill = openBill(next);
+      if (dl > 0 && dl <= BILL_LEAD_DAYS && !bill && !(next.bills ?? []).some((b) => b.kind === "renewal" && b.periodStart === pe)) {
+        next = issueRenewalBill(next);
+      }
+      if (bill && bill.kind === "renewal" && BILL_REMINDER_DAYS.includes(dl)) {
+        next = sendEmail(next, "N-30b", { daysLeft: dl, amount: fmtMoney(bill.amount), prepaidEnd: fmtDate(pe) }, `N-30b:T${dl}:${pe}`);
+      }
+      if (isSameOrAfter(next.now, pe)) {
+        next = expireOneTimePlan(next, pe);
+      }
+    }
+  }
   // Prepaid (migrated) users without a subscription
-  if (!activeSubscription(next) && next.prepaid) {
+  else if (!activeSubscription(next) && next.prepaid) {
     const pe = prepaidEnd(next);
     if (pe) {
       const dl = daysBetween(today, pe);
@@ -1112,6 +1192,177 @@ export function optInAutoRenew(s: AppState, card: Card, consentText: string, int
 
 export function brandLabel(brand: Card["brand"]): string {
   return brand === "visa" ? "Visa" : brand === "mastercard" ? "Mastercard" : "American Express";
+}
+
+/* ------------------------------------------------------------------ */
+/* Region (Settings → Workspace preferences)                            */
+/* ------------------------------------------------------------------ */
+/** Plans are entitlements on the account, so they stay active across regions. Future bills/charges use the new region's catalogue. */
+export function setRegion(s: AppState, region: Region): AppState {
+  if (regionOf(s) === region) return s;
+  const from = regionMeta(regionOf(s));
+  const to = regionMeta(region);
+  let next: AppState = { ...s, region };
+  next = addHistory(next, "region_changed", `Region changed to ${to.name}`, `Was ${from.name}. Your current plan stays active. Future bills and charges use ${to.currency} prices${to.market === "indonesia" ? " and Indonesian payment methods" : ""}.`);
+  return toast(next, `Region set to ${to.flag} ${to.name}. Prices now in ${to.currency}.`, "info");
+}
+
+/* ------------------------------------------------------------------ */
+/* Indonesia: one-time purchases, bills, Payment IDs                     */
+/* ------------------------------------------------------------------ */
+function vaNumberFor(bank: VaBank): string {
+  const prefix = VA_BANKS.find((b) => b.code === bank)?.prefix ?? "8888";
+  const rest = String(Math.floor(Math.random() * 1e10)).padStart(10, "0");
+  return `${prefix}${rest}`;
+}
+
+function newPaymentRequest(s: AppState, method: PaymentMethodKind, bank?: VaBank, cardLast4?: string) {
+  return {
+    paymentId: `PAY-${new Date(s.now).getUTCFullYear()}${String(new Date(s.now).getUTCMonth() + 1).padStart(2, "0")}-${uid("").slice(1, 7).toUpperCase()}`,
+    method,
+    bank,
+    vaNumber: method === "va" && bank ? vaNumberFor(bank) : undefined,
+    cardLast4,
+    createdAt: s.now,
+    expiresAt: new Date(new Date(s.now).getTime() + PAYMENT_ID_VALID_HOURS * 3600_000).toISOString(),
+  };
+}
+
+/** Start a one-time purchase (new plan or "buy next period"): creates a bill with a live Payment ID. */
+export function startOneTimePurchase(
+  s: AppState,
+  input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean }
+): AppState {
+  const pe = isOneTimeUser(s) ? prepaidEnd(s)! : null;
+  const start = pe && isSameOrAfter(pe, startOfDayUTC(s.now)) ? pe : startOfDayUTC(s.now);
+  const anchorDay = dayOfMonthUTC(start);
+  const end = periodEnd(start, input.interval, anchorDay);
+  const amount = planPrice(input.tier, input.interval, input.seats);
+  // any earlier open bill is superseded
+  let next: AppState = { ...s, bills: (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "void" as const } : b)) };
+  const bill: Bill = {
+    id: uid("bill"),
+    kind: "purchase",
+    tier: input.tier,
+    interval: input.interval,
+    seats: input.seats,
+    amount,
+    periodStart: start,
+    periodEnd: end,
+    issuedAt: s.now,
+    dueAt: end,
+    status: "pending_payment",
+    payment: newPaymentRequest(s, input.method, input.bank, input.card?.last4),
+  };
+  next = { ...next, bills: [bill, ...(next.bills ?? [])] };
+  if (input.card && input.saveCard) next = addCardState(next, input.card, true);
+  next = addHistory(next, "payment_pending", `Payment ID ${bill.payment!.paymentId} generated`, `${planName(input.tier, input.interval)} · ${fmtMoney(amount)} via ${methodLabel(input.method, input.bank, input.card?.last4)}. Valid for ${PAYMENT_ID_VALID_HOURS} hours.`);
+  return next;
+}
+
+/** Renewal bill for a one-time plan, issued BILL_LEAD_DAYS before expiry (no Payment ID until the user clicks Pay). */
+export function issueRenewalBill(s: AppState): AppState {
+  const pe = prepaidEnd(s)!;
+  const last = s.prepaid!.periods.find((p) => p.end === pe)!;
+  const seats = last.seats ?? 1;
+  const amount = planPrice(last.tier, last.interval, seats);
+  const bill: Bill = {
+    id: uid("bill"),
+    kind: "renewal",
+    tier: last.tier,
+    interval: last.interval,
+    seats,
+    amount,
+    periodStart: pe,
+    periodEnd: periodEnd(pe, last.interval, dayOfMonthUTC(pe)),
+    issuedAt: s.now,
+    dueAt: pe,
+    status: "awaiting",
+    payment: null,
+  };
+  let next: AppState = { ...s, bills: [bill, ...(s.bills ?? [])] };
+  next = addHistory(next, "bill_issued", `Bill issued: ${planName(last.tier, last.interval)} for ${periodLabel(pe, bill.periodEnd)}`, `${fmtMoney(amount)}, pay before ${fmtDate(pe)} to continue without interruption. No automatic charge.`);
+  next = sendEmail(next, "N-30", { amount: fmtMoney(amount), prepaidEnd: fmtDate(pe), planName: planName(last.tier, last.interval), newEnd: fmtDate(bill.periodEnd), daysLeft: BILL_LEAD_DAYS }, `N-30:${pe}`);
+  return next;
+}
+
+/** User clicks Pay on a renewal bill and picks a method: generates the Payment ID. */
+export function payBill(s: AppState, billId: string, method: PaymentMethodKind, bank?: VaBank, card?: Card, saveCard?: boolean): AppState {
+  const bill = (s.bills ?? []).find((b) => b.id === billId);
+  if (!bill || (bill.status !== "awaiting" && bill.status !== "pending_payment")) return s;
+  const payment = newPaymentRequest(s, method, bank, card?.last4);
+  let next: AppState = { ...s, bills: s.bills!.map((b) => (b.id === billId ? { ...b, status: "pending_payment" as const, payment } : b)) };
+  if (card && saveCard) next = addCardState(next, card, true);
+  next = addHistory(next, "payment_pending", `Payment ID ${payment.paymentId} generated`, `${fmtMoney(bill.amount)} via ${methodLabel(method, bank, card?.last4)}. Valid for ${PAYMENT_ID_VALID_HOURS} hours.`);
+  return next;
+}
+
+/** Abandon a live Payment ID. Renewal bills go back to "awaiting"; purchases are voided. */
+export function cancelPayment(s: AppState, billId: string): AppState {
+  const bill = (s.bills ?? []).find((b) => b.id === billId);
+  if (!bill || bill.status !== "pending_payment") return s;
+  const next: AppState = { ...s, bills: s.bills!.map((b) => (b.id === billId ? { ...b, status: bill.kind === "renewal" ? ("awaiting" as const) : ("void" as const), payment: null } : b)) };
+  return toast(next, bill.kind === "renewal" ? "Payment cancelled. The bill is still open until your plan expires." : "Checkout cancelled. Nothing was paid.", "info");
+}
+
+function expireStalePayments(s: AppState): AppState {
+  let next = s;
+  for (const b of next.bills ?? []) {
+    if (b.status === "pending_payment" && b.payment && isSameOrAfter(next.now, b.payment.expiresAt)) {
+      next = { ...next, bills: next.bills!.map((x) => (x.id === b.id ? { ...x, status: b.kind === "renewal" ? ("awaiting" as const) : ("void" as const), payment: null } : x)) };
+      next = addHistory(next, "payment_expired", `Payment ID ${b.payment.paymentId} expired unpaid`, b.kind === "renewal" ? "The bill is still open. Generate a new Payment ID to pay it." : "The checkout was not completed.");
+      next = sendEmail(next, "N-33", { amount: fmtMoney(b.amount), planName: planName(b.tier, b.interval) }, `N-33:${b.payment.paymentId}`);
+    }
+  }
+  return next;
+}
+
+/** Payment received for a Payment ID (simulated in the prototype): the period is added and the account is entitled. */
+export function confirmPayment(s: AppState, billId: string): AppState {
+  const bill = (s.bills ?? []).find((b) => b.id === billId);
+  if (!bill || bill.status !== "pending_payment" || !bill.payment) return s;
+  const label = methodLabel(bill.payment.method, bill.payment.bank, bill.payment.cardLast4);
+  const r = addInvoice(s, {
+    date: s.now,
+    dueDate: s.now,
+    amount: bill.amount,
+    status: "paid",
+    description: `${planName(bill.tier, bill.interval)}${bill.tier === "business" ? ` × ${bill.seats} seats` : ""} · one-time · ${periodLabel(bill.periodStart, bill.periodEnd)}`,
+    periodStart: bill.periodStart,
+    periodEnd: bill.periodEnd,
+    method: label,
+  });
+  let next = r.state;
+  const period = { start: bill.periodStart, end: bill.periodEnd, tier: bill.tier, interval: bill.interval, purchasedAt: s.now, seats: bill.seats, paidWith: bill.payment.method, paidWithLabel: label };
+  const periods = s.prepaid?.source === "one_time" ? [...s.prepaid.periods, period] : [period];
+  next = {
+    ...next,
+    prepaid: { tier: bill.tier, periods, source: "one_time" },
+    bills: next.bills!.map((b) => (b.id === billId ? { ...b, status: "paid" as const, paidAt: s.now, invoiceId: r.invoice.id } : b)),
+  };
+  if (bill.tier === "business") next = { ...next, workspace: { ...next.workspace, closed: false } };
+  next = addHistory(next, bill.kind === "renewal" ? "bill_paid" : "bill_paid", `${bill.kind === "renewal" ? "Bill paid" : "One-time purchase"}: ${planName(bill.tier, bill.interval)}`, `${fmtMoney(bill.amount)} via ${label}. Active ${periodLabel(bill.periodStart, bill.periodEnd)}. No automatic renewal.`);
+  next = sendEmail(next, "N-32", { amount: fmtMoney(bill.amount), planName: planName(bill.tier, bill.interval), newEnd: fmtDate(bill.periodEnd), invoiceNumber: r.invoice.number, last4: label }, `N-32:${bill.payment.paymentId}`);
+  return toast(next, `Payment received. ${planName(bill.tier, bill.interval)} is active until ${fmtDate(bill.periodEnd)}.`);
+}
+
+function expireOneTimePlan(s: AppState, pe: string): AppState {
+  let next: AppState = { ...s, bills: (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "expired" as const, payment: null } : b)) };
+  const tier = s.prepaid!.tier;
+  next = addHistory(next, "bill_expired", `${TIER_LABEL[tier]} plan expired`, "The bill was not paid by the expiry date. Account moved to Free (no grace period for one-time plans). Documents kept.");
+  next = sendEmail(next, "N-31", { prepaidEnd: fmtDate(pe), tierLabel: TIER_LABEL[tier] }, `N-31:${pe}`);
+  if (tier === "business") next = closeWorkspace(next, fmtDate(pe));
+  return { ...next, prepaid: null };
+}
+
+/** One-time user turns on auto-renewal: subscription anchored at the current expiry, first charge on that date, open bill voided. */
+export function convertToAutoRenew(s: AppState, card: Card, consentText: string): AppState {
+  const pe = prepaidEnd(s)!;
+  const last = s.prepaid!.periods.find((p) => p.end === pe)!;
+  const bills = (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "void" as const, payment: null } : b));
+  let next = optInAutoRenew({ ...s, bills }, card, consentText, last.interval, last.tier, last.seats ?? 1);
+  next = sendEmail(next, "N-34", { planName: planName(last.tier, last.interval), nextDate: fmtDate(pe), amount: fmtMoney(planPrice(last.tier, last.interval, last.seats ?? 1)), last4: card.last4 });
+  return toast(next, `Auto-renewal is on. We charge card ending ${card.last4} on ${fmtDate(pe)}; no more manual bills.`);
 }
 
 /* ------------------------------------------------------------------ */

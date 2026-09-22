@@ -1,4 +1,4 @@
-import { CURRENCY_PREFIX } from "./catalog";
+import { activeCurrency, currencyPrefix } from "./catalog";
 
 const DAY = 86_400_000;
 
@@ -92,12 +92,16 @@ export function fmtDateTime(isoStr: string): string {
 }
 
 export function fmtMoney(n: number): string {
-  const fixed = Number.isInteger(n) ? n.toFixed(2) : n.toFixed(2);
-  return `${CURRENCY_PREFIX}${fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+  if (activeCurrency() === "IDR") {
+    return `${currencyPrefix()}${Math.round(n).toLocaleString("en-US")}`;
+  }
+  const fixed = n.toFixed(2);
+  return `${currencyPrefix()}${fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
 }
 
 export function fmtMoneyShort(n: number): string {
-  return Number.isInteger(n) ? `${CURRENCY_PREFIX}${n.toLocaleString("en-AU")}` : fmtMoney(n);
+  if (activeCurrency() === "IDR") return fmtMoney(n);
+  return Number.isInteger(n) ? `${currencyPrefix()}${n.toLocaleString("en-AU")}` : fmtMoney(n);
 }
 
 export function plural(n: number, one: string, many?: string): string {

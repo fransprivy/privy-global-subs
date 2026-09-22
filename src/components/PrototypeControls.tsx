@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
-import { activeSubscription, CONFIG, prepaidEnd } from "@/lib/engine";
+import { regionMeta } from "@/lib/catalog";
+import { activeSubscription, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
 import { addDays, daysBetween, fmtDate, startOfDayUTC } from "@/lib/format";
 import { SCENARIOS } from "@/lib/scenarios";
 import { useAppState } from "@/lib/store";
-import type { CardBehavior } from "@/lib/types";
+import type { CardBehavior, Region } from "@/lib/types";
 import { IconClose, IconMail, IconRefresh, IconSliders } from "./Icons";
+import { RegionSelect } from "./onetime";
 
 export function PrototypeControls() {
   const { s, api } = useAppState();
@@ -17,6 +19,9 @@ export function PrototypeControls() {
   const sub = activeSubscription(s);
   const pe = prepaidEnd(s);
   const today = startOfDayUTC(s.now);
+  const region = regionMeta(regionOf(s));
+  const pending = pendingPayment(s);
+  const bill = openBill(s);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -32,6 +37,8 @@ export function PrototypeControls() {
       return { label: `end of grace (${fmtDate(sub.graceEndsAt)})`, iso: sub.graceEndsAt };
     }
     if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "scheduled change" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
+    if (pe && isOneTimeUser(s) && !bill && daysBetween(today, pe) > CONFIG.billLeadDays) return { label: `bill day (${fmtDate(addDays(pe, -CONFIG.billLeadDays))})`, iso: addDays(pe, -CONFIG.billLeadDays) };
+    if (pe && isOneTimeUser(s)) return { label: `plan expiry (${fmtDate(pe)})`, iso: pe };
     if (pe) return { label: `end of prepaid time (${fmtDate(pe)})`, iso: pe };
     return null;
   })();
@@ -79,6 +86,13 @@ export function PrototypeControls() {
             </div>
           </Section>
 
+          <Section title={`Region: ${region.flag} ${region.name} (${region.currency})`}>
+            <RegionSelect value={regionOf(s)} onChange={(v) => api.setRegion(v as Region)} />
+            <p className="mt-1 text-xs text-muted">
+              {region.market === "indonesia" ? "Indonesia: one-time (QRIS, card, virtual account) or auto-renewal (card). Prices in IDR, includes PPN." : "Global: auto-renewal on a card only. Prices in AUD, after tax."} Same as Settings › Workspace preferences.
+            </p>
+          </Section>
+
           <Section title={`Simulated date: ${fmtDate(s.now)}`}>
             <div className="flex flex-wrap gap-2">
               <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.advanceDays(1)}>
@@ -112,6 +126,22 @@ export function PrototypeControls() {
               Default: the saved card's behaviour ({s.card ? `card ending ${s.card.last4}: ${s.card.behavior.replace("_", " ")}` : "no card: hard decline"}).
             </p>
           </Section>
+
+          {(pending || region.market === "indonesia") && (
+            <Section title="One-time payments">
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-primary !py-1.5 text-xs" disabled={!pending} onClick={() => pending && api.confirmPayment(pending.id)}>
+                  Simulate payment received
+                </button>
+                <button className="btn-secondary !py-1.5 text-xs" disabled={!pending} onClick={() => pending && api.cancelPayment(pending.id)}>
+                  Expire / cancel Payment ID
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                {pending ? `Open: ${pending.payment?.paymentId} for ${pending.payment?.method.toUpperCase()}${pending.payment?.bank ? ` ${pending.payment.bank}` : ""}. "Received" is what the payment gateway webhook would send.` : bill ? `Bill ${bill.id} is waiting; open it from Billing to create a Payment ID.` : "No Payment ID open. Bills appear 7 days before a one-time plan expires."}
+              </p>
+            </Section>
+          )}
 
           <Section title="Demo helpers">
             <div className="flex flex-wrap gap-2">

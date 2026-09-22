@@ -1,3 +1,6 @@
+import type { PaymentMethodKind, PurchaseType, Region, VaBank } from "./catalog";
+export type { PaymentMethodKind, PurchaseType, Region, VaBank };
+
 export type Tier = "free" | "personal" | "business" | "enterprise";
 export type Interval = "monthly" | "annual";
 export type PaidTier = "personal" | "business";
@@ -80,11 +83,49 @@ export interface PrepaidPeriod {
   tier: PaidTier;
   interval: Interval;
   purchasedAt: string;
+  seats?: number;
+  /** How this period was paid (Indonesia one-time purchases). Card payers are eligible to convert to auto-renewal. */
+  paidWith?: PaymentMethodKind;
+  paidWithLabel?: string;
 }
 
 export interface Prepaid {
   tier: PaidTier;
   periods: PrepaidPeriod[];
+  /** "migration": old Global SKU units. "one_time": Indonesia one-time purchases (bills before expiry, no grace). */
+  source?: "migration" | "one_time";
+}
+
+export type BillStatus = "awaiting" | "pending_payment" | "paid" | "expired" | "void";
+
+/** A payment request for a one-time purchase or a renewal bill (Indonesia). */
+export interface PaymentRequest {
+  paymentId: string;
+  method: PaymentMethodKind;
+  bank?: VaBank;
+  vaNumber?: string;
+  cardLast4?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface Bill {
+  id: string;
+  kind: "purchase" | "renewal";
+  tier: PaidTier;
+  interval: Interval;
+  seats: number;
+  amount: number;
+  /** Period the payment buys. For renewals: starts at the current expiry. */
+  periodStart: string;
+  periodEnd: string;
+  issuedAt: string;
+  /** Renewal bills die at the plan's expiry date; purchases die with their Payment ID. */
+  dueAt: string;
+  status: BillStatus;
+  payment: PaymentRequest | null;
+  invoiceId?: string;
+  paidAt?: string;
 }
 
 export type InvoiceStatus = "paid" | "open" | "void" | "refunded";
@@ -99,6 +140,8 @@ export interface Invoice {
   description: string;
   periodStart?: string;
   periodEnd?: string;
+  /** e.g. "Card ending 4242", "QRIS", "VA BCA" */
+  method?: string;
 }
 
 export type HistoryType =
@@ -119,6 +162,12 @@ export type HistoryType =
   | "card_removed"
   | "seats_changed"
   | "opt_in"
+  | "bill_issued"
+  | "bill_paid"
+  | "bill_expired"
+  | "payment_pending"
+  | "payment_expired"
+  | "region_changed"
   | "note";
 
 export interface HistoryEvent {
@@ -190,10 +239,20 @@ export interface UIState {
   toast: { id: string; text: string; tone: "success" | "info" | "warn" } | null;
 }
 
+export interface WorkspacePrefs {
+  timezone: string;
+  dateFormat: string;
+}
+
 export interface AppState {
   version: number;
   scenarioId: string;
   now: string;
+  /** Workspace region (Settings → Workspace preferences). Drives currency, purchase types and payment methods. */
+  region?: Region;
+  prefs?: WorkspacePrefs;
+  /** Indonesia one-time bills and payment requests. */
+  bills?: Bill[];
   user: { name: string; email: string; maskedEmail: string };
   subscription: Subscription | null;
   prepaid: Prepaid | null;

@@ -10,6 +10,9 @@ import {
   classifyChange,
   CONFIG,
   downgradeLosses,
+  isIndonesia,
+  isOneTimeUser,
+  pendingPayment,
   previewSeatChange,
   intervalWord,
   isPrepaidUser,
@@ -24,6 +27,7 @@ import type { Card, Interval, PaidTier } from "@/lib/types";
 import { CheckoutDrawer, type CheckoutMode } from "./CheckoutDrawer";
 import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, IconPlus, IconWarning } from "./Icons";
 import { CardBrandBadge, CardForm, cardFormValid, cardFromForm, ThreeDSModal, type CardFormValue } from "./payments";
+import { ConvertModal, OneTimeCheckoutDrawer, PaymentDetailDrawer, PurchaseTypeModal } from "./onetime";
 import { Checkbox, Modal, Spec } from "./ui";
 
 export type Flow =
@@ -34,6 +38,9 @@ export type Flow =
   | { type: "addCard"; makeDefault?: boolean }
   | { type: "removeCard"; id: string }
   | { type: "seats" }
+  | { type: "payBill"; billId: string }
+  | { type: "paymentDetail"; billId: string }
+  | { type: "convert" }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
   | { type: "handover" };
@@ -78,6 +85,12 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <RemoveCardModal close={close} id={flow.id} />;
     case "seats":
       return <SeatsModal close={close} />;
+    case "payBill":
+      return <PayBillFlow billId={flow.billId} close={close} />;
+    case "paymentDetail":
+      return <PaymentDetailDrawer billId={flow.billId} close={close} />;
+    case "convert":
+      return <ConvertModal close={close} />;
     case "authenticate":
       return <AuthenticateFlow close={close} />;
     case "optin":
@@ -99,11 +112,31 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
   const [seats, setSeats] = useState(seatsIn ?? (tier === "business" ? Math.max(1, s.workspace.members.length) : 1));
   const [step, setStep] = useState<"decide" | "checkout">(direction === "subscribe" ? "checkout" : "decide");
   const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("subscribe");
+  // Indonesia: choose auto-renewal vs one-time first (M-10). Global: recurring only.
+  const [indonesia] = useState(() => isIndonesia(s));
+  const [oneTimeUser] = useState(() => isOneTimeUser(s));
+  const [purchase, setPurchase] = useState<"recurring" | "one_time" | null>(null);
+  const [oneTimeStage, setOneTimeStage] = useState<"checkout" | "detail">("checkout");
 
   const onDone = useCallback(() => close(), [close]);
 
-  // Prepaid (migrated) users: any paid change routes through opt-in (nothing charged until prepaid ends), R-43.
-  if (prepaid) {
+  const needsPurchaseChoice = (indonesia || oneTimeUser) && !sub && purchase === null;
+  if (needsPurchaseChoice) {
+    return <PurchaseTypeModal tier={tier} interval={interval} seats={seats} close={close} onPick={setPurchase} />;
+  }
+  if (purchase === "one_time") {
+    if (oneTimeStage === "detail") {
+      const pp = pendingPayment(s);
+      if (!pp) {
+        close();
+        return null;
+      }
+      return <PaymentDetailDrawer billId={pp.id} close={close} />;
+    }
+    return <OneTimeCheckoutDrawer tier={tier} interval={interval} seats={seats} close={close} onPaymentCreated={() => setOneTimeStage("detail")} />;
+  }
+  // One-time (Indonesia) user choosing auto-renewal, or a migrated prepaid user: subscription starts when prepaid time ends (R-43, R-65).
+  if (prepaid || oneTimeUser) {
     return <OptInModal close={close} tier={tier} interval={interval} fromUpgrade />;
   }
 
@@ -605,7 +638,7 @@ function AddCardModal({ close, makeDefault: makeDefaultIn }: { close: () => void
       </Modal>
       {stage === "3ds" && (
         <ThreeDSModal
-          amount="A$0.00 (card verification)"
+          amount={`${fmtMoney(0)} (card verification)`}
           last4={cardFromForm(form, s.now).last4}
           onApprove={() => save({ ...cardFromForm(form, s.now), behavior: "success" })}
           onCancel={() => setStage("form")}
@@ -831,6 +864,19 @@ function SeatsModal({ close }: { close: () => void }) {
   );
 }
 
+/* Indonesia: pay an existing renewal bill (M-11 → M-12 → M-13) */
+function PayBillFlow({ billId, close }: { billId: string; close: () => void }) {
+  const { s } = useAppState();
+  const bill = (s.bills ?? []).find((b) => b.id === billId);
+  const [stage, setStage] = useState<"checkout" | "detail">(bill?.status === "pending_payment" ? "detail" : "checkout");
+  if (!bill) {
+    close();
+    return null;
+  }
+  if (stage === "detail") return <PaymentDetailDrawer billId={billId} close={close} />;
+  return <OneTimeCheckoutDrawer tier={bill.tier} interval={bill.interval} seats={bill.seats} bill={bill} close={close} onPaymentCreated={() => setStage("detail")} />;
+}
+
 /* N-06 link: on-session confirmation of the same PaymentIntent */
 function AuthenticateFlow({ close }: { close: () => void }) {
   const { s, api } = useAppState();
@@ -944,7 +990,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
         </div>
       </Modal>
       {stage === "3ds" && (
-        <ThreeDSModal amount="A$0.00 (card verification)" last4={cardFromForm(form, s.now).last4} onApprove={() => finish({ ...cardFromForm(form, s.now), behavior: "success" })} onCancel={() => setStage("form")} />
+        <ThreeDSModal amount={`${fmtMoney(0)} (card verification)`} last4={cardFromForm(form, s.now).last4} onApprove={() => finish({ ...cardFromForm(form, s.now), behavior: "success" })} onCancel={() => setStage("form")} />
       )}
     </>
   );

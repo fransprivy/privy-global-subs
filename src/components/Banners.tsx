@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { activeSubscription, cardExpiresBefore, graceDaysLeft, isPrepaidUser, planName, planPrice, prepaidEnd } from "@/lib/engine";
+import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, openBill, planName, planPrice, prepaidEnd } from "@/lib/engine";
 import { daysBetween, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import { useFlows } from "./flows";
@@ -123,7 +123,64 @@ export function Banners() {
     );
   }
 
-  if (isPrepaidUser(s) && !s.optInDismissed) {
+  // Indonesia one-time plans: B-06 bill due, B-07 checkout still open, B-08 expired.
+  const bill = openBill(s);
+  if (isOneTimeUser(s) && bill && bill.status === "awaiting") {
+    const dl = Math.max(0, daysBetween(startOfDayUTC(s.now), bill.dueAt));
+    items.push(
+      <Banner key="b06" tone={dl <= 1 ? "danger" : "warn"} icon={<IconClock size={20} />} spec="B-06">
+        <div className="flex-1">
+          <p className="font-semibold">
+            Your {planName(bill.tier, bill.interval)} bill of {fmtMoney(bill.amount)} is due by {fmtDate(bill.dueAt)} ({dl === 0 ? "today" : `${dl} day${dl === 1 ? "" : "s"} left`}).
+          </p>
+          <p className="text-xs opacity-80">Pay it to keep your plan running to {fmtDate(bill.periodEnd)}. If it is not paid, your plan ends on {fmtDate(bill.dueAt)} with no grace period.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {convertEligible(s) && (
+            <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "convert" })}>
+              Switch to auto-renewal
+            </button>
+          )}
+          <button className="btn-primary !py-1.5 text-xs" onClick={() => flows.open({ type: "payBill", billId: bill.id })}>
+            Pay bill
+          </button>
+        </div>
+      </Banner>
+    );
+  }
+  if (bill && bill.status === "pending_payment" && bill.payment) {
+    items.push(
+      <Banner key="b07" tone="info" icon={<IconCard size={20} />} spec="B-07">
+        <div className="flex-1">
+          <p className="font-semibold">A payment is still open: {bill.payment.paymentId} for {fmtMoney(bill.amount)}.</p>
+          <p className="text-xs opacity-80">Finish paying with {bill.payment.method === "qris" ? "QRIS" : bill.payment.method === "va" ? `Virtual Account ${bill.payment.bank}` : "your card"} before {fmtDate(bill.payment.expiresAt)} or cancel it to pick another method.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-ghost !py-1.5 text-xs" onClick={() => api.cancelPayment(bill.id)}>
+            Cancel
+          </button>
+          <button className="btn-primary !py-1.5 text-xs" onClick={() => flows.open({ type: "paymentDetail", billId: bill.id })}>
+            Continue payment
+          </button>
+        </div>
+      </Banner>
+    );
+  }
+  if (!sub && !s.prepaid && currentTier(s) === "free" && s.history[0]?.type === "bill_expired") {
+    items.push(
+      <Banner key="b08" tone="warn" icon={<IconWarning size={20} />} spec="B-08">
+        <div className="flex-1">
+          <p className="font-semibold">Your plan expired because the bill was not paid.</p>
+          <p className="text-xs opacity-80">Your documents are kept. Buy a plan to get your limits back, or turn on auto-renewal so this does not happen again.</p>
+        </div>
+        <Link href="/plans" className="btn-primary !py-1.5 text-xs">
+          Buy a plan
+        </Link>
+      </Banner>
+    );
+  }
+
+  if (isPrepaidUser(s) && !isOneTimeUser(s) && !s.optInDismissed) {
     const pe = prepaidEnd(s)!;
     items.push(
       <Banner key="b03" tone="neutral" icon={<IconInfo size={20} />} spec="B-03">

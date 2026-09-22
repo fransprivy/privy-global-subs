@@ -6,6 +6,17 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
+## Region and Indonesia one-time payments (added 22 Sep 2026)
+
+The workspace has a **Region** (Settings → Workspace preferences, also in the Prototype panel). Every region except Indonesia keeps the Global behaviour: auto-renewal on a card, AUD prices, "after tax". Indonesia switches the same product to IDR prices shown inclusive ("includes PPN": Personal Rp 54,000/month or Rp 395,000/year, Business Rp 99,000 or Rp 725,000 per seat, Enterprise still contact sales) and adds a choice at checkout (M-10):
+
+- **Auto-renewal** (card only): identical to Global, including the 14-day grace, retries and backup cards.
+- **One-time purchase** (QRIS, card, or virtual account BRI / BCA / CIMB / Mandiri / Permata): the checkout (M-11) creates a **Payment ID** valid for 2 hours and shows the payment detail (M-12: VA number, QR code, amount, guidance). "Confirm payment → Refresh" (or "Simulate payment received" in the Prototype panel) is the gateway webhook. Card payments can save the card for later bills.
+- **Bills:** 7 days before a one-time plan expires a renewal bill is issued (email N-30, banner B-06, reminders N-30b at T-3 and T-1). Paying it extends the plan from the current expiry; the plan keeps one end date. The bill dies at the expiry date: **no grace period**. Unpaid → account moves to Free (Business: workspace closed), email N-31, banner B-08, bill marked "Expired unpaid".
+- **Convert to auto-renewal** (M-14): offered on the banner and the subscription card only to one-time users whose last payment was by card (phase 1); everyone else finds it under Billing → Payment methods. It voids the open bill and starts a subscription whose first charge is the current expiry date (email N-34).
+- **Changing region** is always allowed; Personal and Business plans are shared across regions, so nothing expires or is charged on a switch (history entry "Region changed"). Future bills and charges use the new currency.
+- Engine: `setRegion`, `startOneTimePurchase`, `issueRenewalBill`, `payBill`, `cancelPayment`, `confirmPayment`, `convertToAutoRenew`, `expireOneTimePlan`; helpers `isIndonesia`, `isOneTimeUser`, `openBill`, `pendingPayment`, `convertEligible`. Catalog: `REGIONS`, `PRICE_TABLES`, `VA_BANKS`, `BILL_LEAD_DAYS`. UI: `src/components/onetime.tsx`, `settings/workspace-preferences`. Scenarios: **Indonesia: Free user**, **one-time plan, bill due in 5 days**, **Business paid by QRIS, expires in 2 days**, **auto-renewal on a card**. Requirement IDs R-60 to R-66.
+
 ## Seats and backup cards (added 11 Sep 2026)
 
 - **Seats (Business):** Billing → Manage seats. Adding seats charges a prorated amount today (`seats × unit × remaining days / period days`) and keeps the existing renewal date, so one Business subscription always has one end date. Reducing seats is scheduled for the renewal date (no refund) and can be undone from the banner or the email. You cannot reduce below the number of members in the workspace. Engine: `previewSeatChange`, `changeSeats`, `undoSeatChange`; UI: `SeatsModal` (M-09); email N-22.
@@ -71,17 +82,17 @@ The saved card's behaviour also decides the outcome of automatic renewals, unles
 - **Plan facts** from privyid.com/pricing (AUD, after tax): Free 5 envelopes/mo, 5 templates; Personal A$7.49/mo or A$79/yr (600 envelopes/yr); Business A$38.50 per seat/mo or A$396 per seat/yr, unlimited envelopes; Enterprise custom. Full "What changes between plans" table. (`src/lib/catalog.ts`)
 - **Matrix rules A to E**: same plan disabled; Monthly→Annual now with day roll-over (rule B); Personal→Business with **Upgrade now** (forfeit, full price, acknowledgment) or **Upgrade when my plan ends** (rule C, UX-03/04/05); downgrades at period end with loss checklist and undo (rule D, UX-07/09); cancel at period end, two clicks, skippable survey, one-click resume (rule E, UX-11/12).
 - **Billing engine** (`src/lib/engine.ts`): anniversary billing with month-end clamp (31 Jan → 28 Feb → 31 Mar), hourly-sweep semantics run once per simulated day, invoices created at charge time, soft/hard decline classes, 14-day grace with retries Day 3/7/14 and immediate retry on card update, SCA fallback (N-06 → confirm), recovery keeps the anchor, end of grace → Free with documents kept and Business workspace closure, scheduled changes charged at the effective date, consent records, payment-attempt ledger, change history.
-- **Notifications**: emails N-01…N-21 (`src/lib/emails.ts`), banners B-01…B-04 (`src/components/Banners.tsx`), modals M-01…M-08 (`src/components/flows.tsx`, `CheckoutDrawer.tsx`).
+- **Notifications**: emails N-01…N-24 and N-30…N-34 (`src/lib/emails.ts`), banners B-01…B-08 (`src/components/Banners.tsx`), modals M-01…M-14 (`src/components/flows.tsx`, `CheckoutDrawer.tsx`, `onetime.tsx`).
 - **Screens** mirrored from the production screenshots: Home, Upgrade plan (pricing), Checkout drawer, Settings › Personal info, Settings › Billing, Billing › Change plan (with comparison), plus new Payment method page and Emails page. Responsive down to phone width.
 
 ## Project structure
 
 ```
-src/lib/        types, catalog (plan facts), format (dates/money), engine (state machine), emails, scenarios, store (React context + localStorage)
-src/components/ TopNav, Banners, PlanCards + CompareTable, CheckoutDrawer, flows (all modals), payments (card form, 3DS), PrototypeControls, AppShell
+src/lib/        types, catalog (plan facts, regions, prices per currency), format (dates/money), engine (state machine), emails, scenarios, guide, store (React context + localStorage)
+src/components/ TopNav, Banners, PlanCards + CompareTable, CheckoutDrawer, flows (all modals), onetime (Indonesia purchase type, one-time checkout, payment detail, convert), payments (card form, 3DS), PrototypeControls, TestGuide, AppShell
 src/app/        / (scenario picker), /home, /plans, /settings/*, /prototype/emails
 ```
 
 ## Not in scope
 
-Indonesia (stays on one-off units), Enterprise sales flow, real Stripe integration, tax calculation, seat changes after purchase, disputes (documented in the spec, not simulated).
+Enterprise sales flow, real Stripe or Indonesian payment-gateway integration (Payment IDs, QR codes and VA numbers are generated locally), tax calculation, disputes (documented in the spec, not simulated).

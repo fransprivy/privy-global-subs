@@ -4,15 +4,15 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useFlows } from "@/components/flows";
-import { IconCard, IconChevronRight, IconDownload, IconHistory, IconReceipt, IconSearch, IconUsers } from "@/components/Icons";
+import { IconCard, IconChevronRight, IconClock, IconDownload, IconHistory, IconReceipt, IconRefresh, IconSearch, IconUsers } from "@/components/Icons";
 import { CardBrandBadge } from "@/components/payments";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, StatusPill } from "@/components/ui";
-import { ENVELOPE_LIMIT, TEMPLATE_LIMIT } from "@/lib/catalog";
-import { activeSubscription, brandLabel, cardExpiresBefore, currentPlanName, currentTier, graceDaysLeft, isPrepaidUser, planName, planPrice, prepaidEnd } from "@/lib/engine";
+import { BILL_LEAD_DAYS, ENVELOPE_LIMIT, TEMPLATE_LIMIT, regionMeta } from "@/lib/catalog";
+import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, isIndonesia, isOneTimeUser, isPrepaidUser, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf } from "@/lib/engine";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
-import type { Invoice } from "@/lib/types";
+import type { Bill, Invoice } from "@/lib/types";
 
 export default function BillingPage() {
   return (
@@ -42,6 +42,11 @@ function Billing() {
     if (a === "authenticate" && sub?.status === "past_due") flows.open({ type: "authenticate" });
     if (a === "optin" && prepaid) flows.open({ type: "optin" });
     if (a === "card") flows.open({ type: "replaceCard" });
+    if (a === "pay-bill") {
+      const b = openBill(s);
+      if (b) flows.open(b.status === "pending_payment" ? { type: "paymentDetail", billId: b.id } : { type: "payBill", billId: b.id });
+    }
+    if (a === "convert" && isOneTimeUser(s)) flows.open({ type: "convert" });
     router.replace("/settings/billing");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
@@ -66,6 +71,7 @@ function Billing() {
           </div>
         </section>
 
+        <Bills />
         <PaymentMethodCard />
         <Invoices />
         <History />
@@ -84,7 +90,10 @@ function SubscriptionCard() {
   const flows = useFlows();
   const sub = activeSubscription(s);
   const prepaid = isPrepaidUser(s);
+  const oneTime = isOneTimeUser(s);
   const tier = currentTier(s);
+  const indonesia = isIndonesia(s);
+  const bill = openBill(s);
 
   let status: React.ReactNode = null;
   let footer: React.ReactNode = <span className="text-ink-2">Free</span>;
@@ -128,7 +137,7 @@ function SubscriptionCard() {
         </button>
       );
     } else {
-      status = <StatusPill tone="success">Active</StatusPill>;
+      status = <StatusPill tone="success">{indonesia ? "Active · auto-renewal" : "Active"}</StatusPill>;
       footer = (
         <span className="text-ink-2">
           Renews on <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> for <strong className="text-ink">{fmtMoney(sub.pendingSeats != null ? planPrice(sub.tier, sub.interval, sub.pendingSeats) : amount)}</strong> on {cardText}
@@ -147,6 +156,36 @@ function SubscriptionCard() {
       actions.push(
         <button key="cancel" className="btn-ghost text-ink-2" onClick={() => flows.open({ type: "cancel" })}>
           Cancel subscription
+        </button>
+      );
+    }
+  } else if (oneTime) {
+    const pe = prepaidEnd(s)!;
+    const left = daysLeftInPeriod(s) ?? 0;
+    const last = s.prepaid!.periods.find((p) => p.end === pe);
+    status = <StatusPill tone={left <= 3 ? "warn" : "neutral"}>One-time · expires {fmtDate(pe)}</StatusPill>;
+    footer = (
+      <span className="text-ink-2">
+        Paid until <strong className="text-ink">{fmtDate(pe)}</strong> ({last?.paidWithLabel ?? "one-time payment"}). No automatic renewal: {bill ? `your bill for the next period is ${bill.status === "pending_payment" ? "waiting for payment" : "ready"}.` : `a bill is sent ${BILL_LEAD_DAYS} days before expiry.`} <Spec id="R-63" />
+      </span>
+    );
+    if (bill) {
+      actions.push(
+        <button key="pay" className="btn-primary" onClick={() => flows.open(bill.status === "pending_payment" ? { type: "paymentDetail", billId: bill.id } : { type: "payBill", billId: bill.id })}>
+          {bill.status === "pending_payment" ? "Continue payment" : `Pay ${fmtMoney(bill.amount)} bill`}
+        </button>
+      );
+    } else {
+      actions.push(
+        <button key="buy" className="btn-primary" onClick={() => flows.open({ type: "plan", tier: s.prepaid!.tier, interval: currentInterval(s) ?? "monthly", seats: currentSeats(s) })}>
+          Buy next period
+        </button>
+      );
+    }
+    if (convertEligible(s)) {
+      actions.push(
+        <button key="convert" className="btn-secondary" onClick={() => flows.open({ type: "convert" })}>
+          <IconRefresh size={16} /> Turn on auto-renewal
         </button>
       );
     }
@@ -200,11 +239,28 @@ function PaymentMethodCard() {
   const sub = activeSubscription(s);
   const expiring = sub && s.card && cardExpiresBefore(s.card, sub.currentPeriodEnd);
   const backups = s.backupCards ?? [];
+  const oneTime = isOneTimeUser(s);
   return (
     <section>
       <h2 className="mb-3 text-[17px] font-medium text-ink">
         Payment methods <Spec id="UX-17" />
       </h2>
+      {oneTime && (
+        <div className="card mb-3 flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+          <span className="text-ink-2">
+            <IconRefresh size={20} />
+          </span>
+          <div className="flex-1">
+            <p className="text-[15px] font-medium text-ink">Automatic renewal is off</p>
+            <p className="text-sm text-muted">
+              You pay each period yourself. Switch to automatic renewal with a card and we charge it on {fmtDate(prepaidEnd(s)!)} and every period after, with a 14-day grace period if a payment ever fails. <Spec id="R-66" />
+            </p>
+          </div>
+          <button className="btn-secondary" onClick={() => flows.open({ type: "convert" })}>
+            Turn on auto-renewal
+          </button>
+        </div>
+      )}
       <div className="card flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center">
         {s.card ? (
           <>
@@ -216,7 +272,7 @@ function PaymentMethodCard() {
               <p className="text-sm text-muted">
                 Expires {String(s.card.expMonth).padStart(2, "0")}/{s.card.expYear}
                 {expiring && <span className="ml-2 font-medium text-warn">Expires before your next renewal</span>}
-                {backups.length > 0 ? ` · ${backups.length} backup card${backups.length > 1 ? "s" : ""} (ending ${backups.map((b) => b.last4).join(", ")})` : " · no backup card"}
+                {oneTime ? " · saved for paying bills faster" : backups.length > 0 ? ` · ${backups.length} backup card${backups.length > 1 ? "s" : ""} (ending ${backups.map((b) => b.last4).join(", ")})` : " · no backup card"}
               </p>
             </div>
           </>
@@ -242,6 +298,86 @@ function PaymentMethodCard() {
         </div>
       </div>
     </section>
+  );
+}
+
+function Bills() {
+  const { s, api } = useAppState();
+  const flows = useFlows();
+  const bills = [...(s.bills ?? [])].sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
+  if (bills.length === 0 && !isIndonesia(s)) return null;
+  const open = openBill(s);
+  return (
+    <section>
+      <h2 className="mb-3 text-[17px] font-medium text-ink">
+        Bills <Spec id="R-64" />
+      </h2>
+      {open ? <BillRow bill={open} onPay={() => flows.open(open.status === "pending_payment" ? { type: "paymentDetail", billId: open.id } : { type: "payBill", billId: open.id })} onCancel={open.payment ? () => api.cancelPayment(open.id) : undefined} highlight /> : (
+        <div className="card px-5 py-4 text-sm text-ink-2">
+          No bill waiting for payment.{" "}
+          {isOneTimeUser(s) ? `Your next bill is issued ${BILL_LEAD_DAYS} days before ${fmtDate(prepaidEnd(s)!)}.` : activeSubscription(s) ? "Your plan renews automatically, so there is nothing to pay by hand." : "Buy a plan to get started."}
+        </div>
+      )}
+      {bills.filter((b) => b !== open).length > 0 && (
+        <div className="card mt-3 divide-y divide-line">
+          {bills
+            .filter((b) => b !== open)
+            .slice(0, 6)
+            .map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 text-sm">
+                <span className="w-24 text-muted">{fmtDate(b.issuedAt)}</span>
+                <span className="flex-1 text-ink">
+                  {b.kind === "renewal" ? "Renewal bill" : "Purchase"} · {planName(b.tier, b.interval)}
+                  {b.tier === "business" ? ` · ${b.seats} seat${b.seats > 1 ? "s" : ""}` : ""} · {fmtDate(b.periodStart)} to {fmtDate(b.periodEnd)}
+                </span>
+                <span className="text-ink">{fmtMoney(b.amount)}</span>
+                {b.status === "paid" && <StatusPill tone="success">Paid{b.payment ? ` · ${methodLabel(b.payment.method, b.payment.bank, b.payment.cardLast4)}` : ""}</StatusPill>}
+                {b.status === "expired" && <StatusPill tone="danger">Expired unpaid</StatusPill>}
+                {b.status === "void" && <StatusPill tone="neutral">Void</StatusPill>}
+              </div>
+            ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BillRow({ bill, onPay, onCancel, highlight }: { bill: Bill; onPay: () => void; onCancel?: () => void; highlight?: boolean }) {
+  const { s } = useAppState();
+  const daysToDue = Math.max(0, Math.ceil((new Date(bill.dueAt).getTime() - new Date(s.now).getTime()) / 86400000));
+  const pending = bill.status === "pending_payment" && bill.payment;
+  return (
+    <div className={`card flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center ${highlight ? "border-warn" : ""}`}>
+      <span className="text-warn">
+        <IconClock size={22} />
+      </span>
+      <div className="flex-1">
+        <p className="text-[15px] font-medium text-ink">
+          {bill.kind === "renewal" ? "Renewal bill" : "Purchase"} · {planName(bill.tier, bill.interval)}
+          {bill.tier === "business" ? ` · ${bill.seats} seat${bill.seats > 1 ? "s" : ""}` : ""} · {fmtMoney(bill.amount)}
+        </p>
+        <p className="text-sm text-muted">
+          Covers {fmtDate(bill.periodStart)} to {fmtDate(bill.periodEnd)}. Pay by <strong className="text-ink">{fmtDate(bill.dueAt)}</strong> ({daysToDue === 0 ? "today" : `${daysToDue} day${daysToDue > 1 ? "s" : ""} left`}) or the plan ends on that day. No grace period for one-time payments.
+          {pending && (
+            <>
+              {" "}
+              Payment ID <span className="font-mono text-ink">{bill.payment!.paymentId}</span> via {methodLabel(bill.payment!.method, bill.payment!.bank, bill.payment!.cardLast4)} is open until {fmtDateTime(bill.payment!.expiresAt)}.
+            </>
+          )}{" "}
+          {regionMeta(regionOf(s)).taxNote === "includes PPN" ? "Includes PPN." : ""}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        {pending && onCancel && (
+          <button className="btn-ghost text-ink-2" onClick={onCancel}>
+            Cancel Payment ID
+          </button>
+        )}
+        <button className="btn-primary" onClick={onPay}>
+          {pending ? "Continue payment" : "Pay now"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -280,6 +416,7 @@ function Invoices() {
               <th className="py-3 pr-4 font-semibold">Description</th>
               <th className="py-3 pr-4 font-semibold">Due date</th>
               <th className="py-3 pr-4 font-semibold">Amount</th>
+              <th className="py-3 pr-4 font-semibold">Method</th>
               <th className="py-3 pr-4 font-semibold">Status</th>
               <th className="py-3" />
             </tr>
@@ -287,7 +424,7 @@ function Invoices() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-muted">
+                <td colSpan={8} className="py-8 text-center text-muted">
                   No invoices yet.
                 </td>
               </tr>
@@ -299,6 +436,7 @@ function Invoices() {
                 <td className="py-4 pr-4 text-sm text-ink-2">{i.description}</td>
                 <td className="py-4 pr-4 text-ink">{fmtDate(i.dueDate)}</td>
                 <td className="py-4 pr-4 text-ink">{fmtMoney(i.amount)}</td>
+                <td className="py-4 pr-4 text-sm text-ink-2">{i.method ?? (s.card ? `Card ending ${s.card.last4}` : "Card")}</td>
                 <td className="py-4 pr-4">
                   {i.status === "paid" && <StatusPill tone="success">Paid</StatusPill>}
                   {i.status === "open" && <StatusPill tone="warn">Unpaid</StatusPill>}

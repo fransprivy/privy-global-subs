@@ -1,7 +1,7 @@
 "use client";
 
-import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, type CellValue } from "@/lib/catalog";
-import { activeSubscription, classifyChange, currentTier, isPrepaidUser, planPrice, prepaidEnd } from "@/lib/engine";
+import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
+import { activeSubscription, classifyChange, currentTier, isPrepaidUser, planPrice, prepaidEnd, regionOf } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
@@ -100,6 +100,8 @@ export function PlanCards({ interval, compact }: { interval: Interval; compact?:
 }
 
 function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[number]; interval: Interval; compact?: boolean }) {
+  const { s } = useAppState();
+  const taxNote = regionMeta(regionOf(s)).taxNote;
   const tier = spec.tier;
   const paid = tier === "personal" || tier === "business";
   const price = paid ? (interval === "monthly" ? planPrice(tier, "monthly", 1) : ANNUAL_SAVINGS[tier].perMonth) : null;
@@ -111,9 +113,9 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
         ? "Priced on your team size and needs"
         : interval === "monthly"
           ? tier === "business"
-            ? "Billed monthly per seat"
-            : "Billed monthly"
-          : `Billed yearly ${fmtMoney(yearly!)}${tier === "business" ? " per seat" : ""}`;
+            ? `Billed monthly per seat · ${taxNote}`
+            : `Billed monthly · ${taxNote}`
+          : `Billed yearly ${fmtMoney(yearly!)}${tier === "business" ? " per seat" : ""} · ${taxNote}`;
 
   return (
     <div className={`relative flex flex-col rounded-[14px] border bg-white ${spec.recommended ? "border-maroon" : "border-line"}`}>
@@ -199,7 +201,7 @@ export function CompareTable({ interval, showCtas = true, title = "Compare featu
         </table>
       </div>
       <p className="mt-3 text-center text-xs text-muted">
-        Plan facts follow privyid.com/pricing (Australia, AUD, after tax). <Spec id="catalog" />
+        <CatalogNote />
       </p>
     </section>
   );
@@ -234,4 +236,14 @@ function Cell({ v }: { v: CellValue }) {
   if (v === true) return <IconCheck size={18} className="mx-auto text-success" />;
   if (v === false) return <span className="text-muted-2">–</span>;
   return <span className={/Unlimited|Custom|Yes/.test(v) ? "font-medium text-ink" : "text-ink-2"}>{v}</span>;
+}
+
+function CatalogNote() {
+  const { s } = useAppState();
+  const m = regionMeta(regionOf(s));
+  return (
+    <>
+      {m.market === "indonesia" ? "Prices for Indonesia in IDR, includes PPN. Personal and Business plans are the same product as in every other region." : "Plan facts follow privyid.com/pricing (Australia, AUD, after tax)."} <Spec id="catalog" />
+    </>
+  );
 }

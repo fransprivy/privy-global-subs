@@ -3,7 +3,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as E from "./engine";
 import { buildScenario, SCENARIOS } from "./scenarios";
-import type { AppState, Card, CardBehavior, ChangeKind, Interval, PaidTier } from "./types";
+import { setActiveRegion } from "./catalog";
+import type { AppState, Card, CardBehavior, ChangeKind, Interval, PaidTier, PaymentMethodKind, Region, VaBank, WorkspacePrefs } from "./types";
 
 const KEY = "privy-global-subs-proto-v3";
 
@@ -36,6 +37,13 @@ interface StoreApi {
   removeCard: (id: string) => string | null;
   changeSeats: (target: number, consentText: string) => void;
   undoSeatChange: () => void;
+  setRegion: (region: Region) => void;
+  setPrefs: (prefs: Partial<WorkspacePrefs>) => void;
+  startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean }) => void;
+  payBill: (billId: string, method: PaymentMethodKind, bank?: VaBank, card?: Card, saveCard?: boolean) => void;
+  cancelPayment: (billId: string) => void;
+  confirmPayment: (billId: string) => void;
+  convertToAutoRenew: (card: Card, consentText: string) => void;
   confirmAuthentication: () => void;
   optIn: (card: Card, consentText: string, interval: Interval, tier?: PaidTier, seats?: number) => void;
   dismissOptIn: () => void;
@@ -51,6 +59,8 @@ function load(): AppState | null {
     const parsed = JSON.parse(raw) as AppState;
     if (parsed.version !== 3) return null;
     if (!parsed.backupCards) parsed.backupCards = [];
+    if (!parsed.region) parsed.region = "AU";
+    if (!parsed.bills) parsed.bills = [];
     return parsed;
   } catch {
     return null;
@@ -73,16 +83,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const loaded = load();
+    if (loaded) setActiveRegion(loaded.region ?? "AU");
     setState(loaded);
     setReady(true);
   }, []);
+  // Rendering reads prices/currency through the active region; keep it aligned with the state being rendered.
+  if (state) setActiveRegion(state.region ?? "AU");
 
   useEffect(() => {
     if (state) save(state);
   }, [state]);
 
   const update = useCallback((fn: Updater) => {
-    setState((prev) => (prev ? fn(prev) : prev));
+    setState((prev) => {
+      if (!prev) return prev;
+      setActiveRegion(prev.region ?? "AU");
+      const next = fn(prev);
+      setActiveRegion(next.region ?? "AU");
+      return next;
+    });
   }, []);
 
   const api = useMemo<StoreApi>(
@@ -93,6 +112,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const meta = SCENARIOS.find((x) => x.id === id) ? id : "free";
         const s = buildScenario(meta);
         s.ui.guideOpen = stateRef.current?.ui.guideOpen ?? true;
+        setActiveRegion(s.region ?? "AU");
         setState(s);
         save(s);
       },
@@ -100,6 +120,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const id = stateRef.current?.scenarioId ?? "free";
         const s = buildScenario(id);
         s.ui.guideOpen = stateRef.current?.ui.guideOpen ?? true;
+        setActiveRegion(s.region ?? "AU");
         setState(s);
         save(s);
       },
@@ -137,6 +158,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       changeSeats: (target, consentText) => update((s) => E.changeSeats(s, target, consentText)),
       undoSeatChange: () => update((s) => E.undoSeatChange(s)),
+      setRegion: (region) => update((s) => E.setRegion(s, region)),
+      setPrefs: (prefs) => update((s) => ({ ...s, prefs: { timezone: "auto", dateFormat: "dd MMM yyyy", ...(s.prefs ?? {}), ...prefs } })),
+      startOneTimePurchase: (input) => update((s) => E.startOneTimePurchase(s, input)),
+      payBill: (billId, method, bank, card, saveCard) => update((s) => E.payBill(s, billId, method, bank, card, saveCard)),
+      cancelPayment: (billId) => update((s) => E.cancelPayment(s, billId)),
+      confirmPayment: (billId) => update((s) => E.confirmPayment(s, billId)),
+      convertToAutoRenew: (card, consentText) => update((s) => E.convertToAutoRenew(s, card, consentText)),
       confirmAuthentication: () => update((s) => E.confirmAuthentication(s)),
       optIn: (card, consentText, interval, tier, seats) => update((s) => E.optInAutoRenew(s, card, consentText, interval, tier, seats)),
       dismissOptIn: () => update((s) => ({ ...s, optInDismissed: true })),

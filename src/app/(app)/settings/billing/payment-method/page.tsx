@@ -6,7 +6,8 @@ import { IconArrowLeft, IconCard, IconInfo, IconReceipt, IconStar, IconTrash } f
 import { CardBrandBadge } from "@/components/payments";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec } from "@/components/ui";
-import { activeSubscription, allCards, brandLabel, cardExpiresBefore, cardId, planName, planPrice } from "@/lib/engine";
+import { activeSubscription, allCards, brandLabel, cardExpiresBefore, cardId, isOneTimeUser, planName, planPrice, prepaidEnd } from "@/lib/engine";
+import { IconRefresh } from "@/components/Icons";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Card } from "@/lib/types";
@@ -19,6 +20,7 @@ export default function PaymentMethodPage() {
   const backups = s.backupCards ?? [];
   const nextAmount = sub ? planPrice(sub.scheduledChange?.tier ?? sub.tier, sub.scheduledChange?.interval ?? sub.interval, sub.scheduledChange?.seats ?? sub.pendingSeats ?? sub.seats) : 0;
   const lastAttempt = sub?.attempts[0];
+  const oneTime = isOneTimeUser(s);
 
   return (
     <div>
@@ -40,7 +42,15 @@ export default function PaymentMethodPage() {
               Payment methods <Spec id="UX-17" />
             </h2>
             <p className="text-[15px] text-ink-2">
-              We charge your default card first. If it is declined, we try your backup cards in order before starting the 14-day grace period. <Spec id="R-19b" />
+              {oneTime ? (
+                <>
+                  Your plan is paid one period at a time, so no card is charged automatically. Saved cards only make paying a bill faster. <Spec id="R-66" />
+                </>
+              ) : (
+                <>
+                  We charge your default card first. If it is declined, we try your backup cards in order before starting the 14-day grace period. <Spec id="R-19b" />
+                </>
+              )}
             </p>
           </div>
           <div className="flex gap-2">
@@ -75,6 +85,18 @@ export default function PaymentMethodPage() {
                 onRemove={() => flows.open({ type: "removeCard", id: cardId(c) })}
               />
             ))}
+          </div>
+        )}
+
+        {oneTime && (
+          <div className="mt-5 flex flex-col gap-3 rounded-xl border border-line bg-white p-5 text-sm sm:flex-row sm:items-center">
+            <div className="flex-1">
+              <p className="font-medium text-ink">Automatic renewal is off</p>
+              <p className="mt-1 text-ink-2">Turn it on with a card and we charge it on {fmtDate(prepaidEnd(s)!)}, then every period, with a 14-day grace period and retries if a payment fails. No more manual bills.</p>
+            </div>
+            <button className="btn-primary" onClick={() => flows.open({ type: "convert" })}>
+              <IconRefresh size={16} /> Turn on auto-renewal
+            </button>
           </div>
         )}
 

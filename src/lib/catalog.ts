@@ -5,19 +5,108 @@ import type { Interval, PaidTier, Tier } from "./types";
  * Source of truth for every plan card and comparison table in the prototype.
  */
 
+/* ------------------------------------------------------------------ */
+/* Regions                                                             */
+/* ------------------------------------------------------------------ */
+export type Region = "AU" | "ID" | "SG" | "MY" | "GB" | "US";
+
+export interface RegionMeta {
+  code: Region;
+  name: string;
+  flag: string;
+  currency: "AUD" | "IDR";
+  /** Indonesia: one-time purchases and local payment methods; everywhere else: recurring cards only. */
+  market: "global" | "indonesia";
+  taxNote: string;
+}
+
+export const REGIONS: RegionMeta[] = [
+  { code: "AU", name: "Australia", flag: "🇦🇺", currency: "AUD", market: "global", taxNote: "after tax" },
+  { code: "ID", name: "Indonesia", flag: "🇮🇩", currency: "IDR", market: "indonesia", taxNote: "includes PPN" },
+  { code: "SG", name: "Singapore", flag: "🇸🇬", currency: "AUD", market: "global", taxNote: "after tax" },
+  { code: "MY", name: "Malaysia", flag: "🇲🇾", currency: "AUD", market: "global", taxNote: "after tax" },
+  { code: "GB", name: "United Kingdom", flag: "🇬🇧", currency: "AUD", market: "global", taxNote: "after tax" },
+  { code: "US", name: "United States", flag: "🇺🇸", currency: "AUD", market: "global", taxNote: "after tax" },
+];
+
+export function regionMeta(code: Region): RegionMeta {
+  return REGIONS.find((r) => r.code === code) ?? REGIONS[0];
+}
+
+/**
+ * Prices per region. Global (AUD) matches the privyid.com pricing page.
+ * Indonesia (IDR) per Frans, 22 Sep 2026: Personal 54K / 395K, Business 99K / 725K per seat, tax inclusive.
+ */
+export const PRICE_TABLES: Record<RegionMeta["currency"], Record<PaidTier, Record<Interval, number>>> = {
+  AUD: {
+    personal: { monthly: 7.49, annual: 79 },
+    business: { monthly: 38.5, annual: 396 },
+  },
+  IDR: {
+    personal: { monthly: 54000, annual: 395000 },
+    business: { monthly: 99000, annual: 725000 },
+  },
+};
+
+export const SAVINGS_TABLES: Record<RegionMeta["currency"], Record<PaidTier, { pct: number; amount: number; perMonth: number }>> = {
+  AUD: {
+    personal: { pct: 12, amount: 10.88, perMonth: 6.58 },
+    business: { pct: 14, amount: 66, perMonth: 33 },
+  },
+  IDR: {
+    // 54,000 × 12 = 648,000 vs 395,000 (save 39%); 99,000 × 12 = 1,188,000 vs 725,000 (save 39%)
+    personal: { pct: 39, amount: 253000, perMonth: 32917 },
+    business: { pct: 39, amount: 463000, perMonth: 60417 },
+  },
+};
+
+/**
+ * Active region for pricing and money formatting. The store sets this whenever the state changes
+ * (prototype shortcut so the hundreds of fmtMoney/planPrice call sites need no region argument).
+ */
+let activeRegion: Region = "AU";
+export function setActiveRegion(r: Region) {
+  activeRegion = r;
+}
+export function getActiveRegion(): Region {
+  return activeRegion;
+}
+export function activeCurrency(): RegionMeta["currency"] {
+  return regionMeta(activeRegion).currency;
+}
+export function currencyPrefix(c = activeCurrency()): string {
+  return c === "IDR" ? "Rp " : "A$";
+}
+
 export const CURRENCY = "AUD";
 export const CURRENCY_PREFIX = "A$";
 
-export const PRICES: Record<PaidTier, Record<Interval, number>> = {
-  // per month for monthly, per year for annual; Business is per seat
-  personal: { monthly: 7.49, annual: 79 },
-  business: { monthly: 38.5, annual: 396 },
-};
+/** Live price table for the active region. */
+export const PRICES: Record<PaidTier, Record<Interval, number>> = new Proxy({} as Record<PaidTier, Record<Interval, number>>, {
+  get: (_t, tier: string) => PRICE_TABLES[activeCurrency()][tier as PaidTier],
+});
+export const ANNUAL_SAVINGS: Record<PaidTier, { pct: number; amount: number; perMonth: number }> = new Proxy({} as Record<PaidTier, { pct: number; amount: number; perMonth: number }>, {
+  get: (_t, tier: string) => SAVINGS_TABLES[activeCurrency()][tier as PaidTier],
+});
 
-export const ANNUAL_SAVINGS: Record<PaidTier, { pct: number; amount: number; perMonth: number }> = {
-  personal: { pct: 12, amount: 10.88, perMonth: 6.58 },
-  business: { pct: 14, amount: 66, perMonth: 33 },
-};
+/* ------------------------------------------------------------------ */
+/* Indonesia payment methods                                           */
+/* ------------------------------------------------------------------ */
+export type PurchaseType = "recurring" | "one_time";
+export type PaymentMethodKind = "card" | "qris" | "va";
+export type VaBank = "BRI" | "BCA" | "CIMB" | "Mandiri" | "Permata";
+export const VA_BANKS: { code: VaBank; name: string; prefix: string }[] = [
+  { code: "BRI", name: "Bank BRI", prefix: "26215" },
+  { code: "BCA", name: "Bank BCA", prefix: "39012" },
+  { code: "CIMB", name: "CIMB Niaga", prefix: "5919" },
+  { code: "Mandiri", name: "Bank Mandiri", prefix: "88908" },
+  { code: "Permata", name: "Bank Permata", prefix: "8625" },
+];
+/** How long a generated Payment ID stays payable (hours). */
+export const PAYMENT_ID_VALID_HOURS = 2;
+/** Days before a one-time plan expires that the bill is issued. */
+export const BILL_LEAD_DAYS = 7;
+export const BILL_REMINDER_DAYS = [3, 1];
 
 export const TIER_LABEL: Record<Tier, string> = {
   free: "Free",
@@ -56,7 +145,7 @@ export const PLAN_CARDS: PlanCardSpec[] = [
   },
   {
     tier: "personal",
-    blurb: "Billed monthly · after tax",
+    blurb: "Billed monthly",
     bestFor: "Individuals signing documents on a regular basis.",
     everythingIn: "free",
     highlights: [
@@ -67,7 +156,7 @@ export const PLAN_CARDS: PlanCardSpec[] = [
   },
   {
     tier: "business",
-    blurb: "Billed monthly per seat · after tax",
+    blurb: "Billed monthly per seat",
     bestFor: "Small to medium size businesses that sign together.",
     everythingIn: "personal",
     recommended: true,

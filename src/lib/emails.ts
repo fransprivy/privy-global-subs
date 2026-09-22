@@ -44,7 +44,7 @@ export interface EmailTemplateMeta {
   trigger: string;
   timing: string;
   legal: string;
-  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Other";
+  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Indonesia" | "Other";
 }
 
 export interface RenderedEmail {
@@ -79,6 +79,12 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-22", name: "Seats changed", trigger: "Business seats added (prorated charge) or reduction scheduled", timing: "Immediately", legal: "Receipt expected when charged", group: "Changes" },
   { id: "N-23", name: "Backup card charged", trigger: "Default card declined, a backup card succeeded", timing: "Immediately after the charge", legal: "Recommended (transparency on which card was used)", group: "Renewal" },
   { id: "N-24", name: "Backup card added", trigger: "A backup card was saved", timing: "Immediately", legal: "No", group: "Other" },
+  { id: "N-30", name: "Bill issued (one-time plan)", trigger: "Indonesia one-time plan, 7 days before expiry", timing: "T-7", legal: "Recommended", group: "Indonesia" },
+  { id: "N-30b", name: "Bill reminder", trigger: "Bill still unpaid", timing: "T-3 and T-1", legal: "Recommended", group: "Indonesia" },
+  { id: "N-31", name: "Plan expired (one-time)", trigger: "Bill not paid by the expiry date", timing: "At expiry, no grace", legal: "Recommended", group: "Indonesia" },
+  { id: "N-32", name: "Payment received (one-time)", trigger: "Payment ID paid via QRIS / VA / card", timing: "Immediately", legal: "Receipt expected", group: "Indonesia" },
+  { id: "N-33", name: "Payment ID expired", trigger: "Payment ID not paid within 2 hours", timing: "At expiry of the Payment ID", legal: "No", group: "Indonesia" },
+  { id: "N-34", name: "Auto-renewal turned on", trigger: "One-time user converted to auto-renewal", timing: "Immediately", legal: "Yes: express consent to recurring charge", group: "Indonesia" },
 ];
 
 const planPage = "/settings/billing";
@@ -311,6 +317,46 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
           `To avoid this next time, update your default card or make the backup card your default.`,
         ],
         cta: { label: "Manage payment methods", href: "/settings/billing/payment-method" },
+      };
+    case "N-30":
+      return {
+        subject: `Your Privy ${c.planName} expires on ${c.prepaidEnd}: pay to continue`,
+        body: [
+          `Your one-time ${c.planName} plan ends on ${c.prepaidEnd}. To keep it for the next period (until ${c.newEnd}) pay ${c.amount} before then. Nothing is charged automatically.`,
+          `Pay with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card. If you do nothing, your account moves to Free on ${c.prepaidEnd} with your documents kept.`,
+          `Prefer not to think about it? Turn on auto-renewal with a card and we handle it each period.`,
+        ],
+        cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
+      };
+    case "N-30b":
+      return {
+        subject: `${c.daysLeft} day${c.daysLeft === 1 ? "" : "s"} left: your Privy ${c.planName} expires on ${c.prepaidEnd}`,
+        body: [`Your bill of ${c.amount} is still unpaid. Pay before ${c.prepaidEnd} to continue without interruption; there is no grace period for one-time plans.`],
+        cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
+      };
+    case "N-31":
+      return {
+        subject: `Your Privy ${c.tierLabel} plan has expired`,
+        body: [`The bill was not paid by ${c.prepaidEnd}, so your account is now on the Free plan. Your documents are safe. You can buy a new period any time.`],
+        cta: { label: "Buy a plan", href: "/plans" },
+      };
+    case "N-32":
+      return {
+        subject: `Payment received: ${c.planName} is active until ${c.newEnd}`,
+        body: [`We received ${c.amount} via ${c.last4}. Your ${c.planName} plan is active until ${c.newEnd}. Invoice ${c.invoiceNumber} is attached.`, `This plan does not renew automatically. We will send you a bill 7 days before it expires.`],
+        cta: { label: "View invoice", href: "/settings/billing" },
+      };
+    case "N-33":
+      return {
+        subject: `Your Payment ID for ${c.planName} has expired`,
+        body: [`The Payment ID for ${c.amount} was not paid within 2 hours, so it is no longer valid. Nothing was charged. Generate a new one from Billing when you are ready.`],
+        cta: { label: "Go to Billing", href: "/settings/billing" },
+      };
+    case "N-34":
+      return {
+        subject: `Auto-renewal is on for your Privy ${c.planName}`,
+        body: [`From ${c.nextDate} we will charge ${c.amount} to card ending ${c.last4} every ${c.intervalWord} until you cancel. No more manual bills.`, `You can cancel any time from Plan settings and keep access until the end of the paid period.`],
+        cta: { label: "View plan settings", href: "/settings/billing" },
       };
     case "N-24":
       return {

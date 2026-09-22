@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo } from "react";
-import { activeSubscription, prepaidEnd } from "@/lib/engine";
+import { regionMeta } from "@/lib/catalog";
+import { activeSubscription, prepaidEnd, regionOf } from "@/lib/engine";
 import { daysBetween, fmtDate, startOfDayUTC } from "@/lib/format";
 import { guideFor, stepDone } from "@/lib/guide";
 import { SCENARIOS } from "@/lib/scenarios";
@@ -17,6 +18,7 @@ const TAG_STYLE: Record<string, string> = {
   Failure: "bg-danger-tint text-danger",
   Migration: "bg-gold-tint text-gold",
   Cancel: "bg-[#eeeeee] text-ink-2",
+  Indonesia: "bg-[#fde8e8] text-[#b3261e]",
 };
 
 export const GUIDE_WIDTH = 360;
@@ -102,7 +104,9 @@ export function TestGuide() {
               <span className={`chip ${TAG_STYLE[meta.tag]}`}>{meta.tag}</span>
               <h2 className="font-display text-[15px] font-semibold leading-tight text-ink">{meta.title}</h2>
             </div>
-            <p className="mt-1 text-xs text-muted">{meta.persona}</p>
+            <p className="mt-1 text-xs text-muted">
+              {meta.persona} · {regionMeta(regionOf(s)).flag} {regionMeta(regionOf(s)).currency}
+            </p>
           </div>
           <button
             className="mt-0.5 rounded-md border border-line-2 bg-white p-1 text-ink-2 hover:bg-page disabled:opacity-40"
