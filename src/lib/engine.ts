@@ -524,6 +524,74 @@ export function handoverDocuments(s: AppState): AppState {
   return toast(next, `${docs.length} document${docs.length === 1 ? "" : "s"} moved to your Individual workspace.`);
 }
 
+/** Sending an envelope in the active workspace counts against its quota (UX-28). Returns null when the quota is exhausted (the UI shows the paywall). */
+export function sendEnvelope(s: AppState): AppState | null {
+  const ws = workspaceView(s);
+  if (ws.readOnly) return null;
+  if (ws.envelopeLimit !== null && ws.usage.envelopesSent >= ws.envelopeLimit) return null;
+  const doc: Task = { id: uid("env"), title: `Envelope ${ws.usage.envelopesSent + 1} (prototype)`, from: s.user.name, assignedAgo: "just now", status: "waiting_for_others" };
+  let next: AppState;
+  if (ws.id === "individual") next = { ...s, usage: { ...s.usage, envelopesSent: s.usage.envelopesSent + 1 }, tasks: [doc, ...s.tasks] };
+  else if (ws.id === "business") next = { ...s, workspace: { ...s.workspace, usage: { ...ws.usage, envelopesSent: ws.usage.envelopesSent + 1 }, documents: [doc, ...(s.workspace.documents ?? [])] } };
+  else next = { ...s, otherWorkspaces: (s.otherWorkspaces ?? []).map((o) => (o.id === ws.id ? { ...o, usage: { ...o.usage, envelopesSent: o.usage.envelopesSent + 1 }, documents: [doc, ...o.documents] } : o)) };
+  const left = ws.envelopeLimit === null ? null : ws.envelopeLimit - ws.usage.envelopesSent - 1;
+  return toast(next, left === null ? "Envelope sent." : left === 0 ? "Envelope sent. That was your last one this month." : `Envelope sent. ${left} left this month.`, left === 0 ? "warn" : "success");
+}
+/** Prototype helper: exhaust the Individual quota to reach the paywall quickly. */
+export function useUpQuota(s: AppState): AppState {
+  const ws = workspaceView(s, "individual");
+  if (ws.envelopeLimit === null) return toast(s, "This workspace has unlimited envelopes.", "info");
+  return toast({ ...s, usage: { ...s.usage, envelopesSent: ws.envelopeLimit } }, "Quota used up: 0 sends left.", "warn");
+}
+/** Date the monthly quota resets: the plan's renewal date, or the 1st of next month for Free. */
+export function quotaResetDate(s: AppState): string {
+  const sub = activeSubscription(s);
+  if (sub && sub.interval === "monthly") return sub.currentPeriodEnd;
+  const d = new Date(s.now);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
+}
+
+/**
+ * Ownership transfer (R-81). The current paid period stays active for the workspace, but billing detaches from the old owner:
+ * the subscription ends now (no further charges to their card), the new owner must add a payment method before the period end
+ * or the workspace becomes read-only. The old owner loses the Individual perk immediately and stays in the workspace as a member.
+ */
+export function transferOwnership(s: AppState, memberId: string): AppState {
+  const m = s.workspace.members.find((x) => x.id === memberId);
+  if (!m || m.role === "owner" || workspaceStatus(s) !== "active") return s;
+  const sub = activeSubscription(s);
+  const periodEnd = sub ? sub.currentPeriodEnd : prepaidEnd(s);
+  if (!periodEnd) return s;
+  const transferred: import("./types").OtherWorkspace = {
+    id: `ws_${uid("t")}`,
+    name: s.workspace.name,
+    kind: "business",
+    ownerName: m.name,
+    status: "active",
+    endingAt: periodEnd,
+    paymentPending: true,
+    initials: s.workspace.name.slice(0, 2).toUpperCase(),
+    color: "#1f7a48",
+    documents: s.workspace.documents ?? [],
+    usage: s.workspace.usage ?? { envelopesSent: 0, templates: 0, contacts: 0 },
+    memberCount: s.workspace.members.length,
+  };
+  let next: AppState = {
+    ...s,
+    subscription: sub ? { ...sub, status: "ended", endedAt: s.now, scheduledChange: null, pendingSeats: null, cancelAtPeriodEnd: false } : s.subscription,
+    prepaid: s.prepaid?.tier === "business" ? null : s.prepaid,
+    bills: (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "void" as const, payment: null } : b)),
+    invoices: s.invoices.map((i) => (i.status === "open" ? { ...i, status: "void" as const } : i)),
+    workspace: { name: "", members: s.workspace.members.filter((x) => x.role === "owner"), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true, status: "none", documents: [], usage: { envelopesSent: 0, templates: 0, contacts: 0 }, createdAt: null, expiredAt: null, handedOverAt: null },
+    otherWorkspaces: [transferred, ...(s.otherWorkspaces ?? [])],
+    activeWorkspace: transferred.id,
+  };
+  next = addHistory(next, "ownership_transferred", `${s.workspace.name} transferred to ${m.name}`, `Your card will not be charged again. The paid period runs to ${fmtDate(periodEnd)}; ${m.name} must add a payment method before then. Your Individual workspace is back to ${currentTier(next) === "personal" ? "Personal" : "Free"}.`);
+  next = sendEmail(next, "N-35", { workspaceName: s.workspace.name, nextDate: fmtDate(periodEnd), memberName: m.name }, `N-35:${transferred.id}`, m.email);
+  next = sendEmail(next, "N-36", { workspaceName: s.workspace.name, nextDate: fmtDate(periodEnd), memberName: m.name }, `N-36:${transferred.id}`);
+  return toast(next, `${m.name} now owns ${s.workspace.name}. Your card will not be charged again.`, "info");
+}
+
 /** Member leaves someone else's workspace. Their documents there stay with the workspace owner (R-80). */
 export function leaveWorkspace(s: AppState, id: string): AppState {
   const w = (s.otherWorkspaces ?? []).find((o) => o.id === id);

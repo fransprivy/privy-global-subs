@@ -80,8 +80,8 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "business-member-personal",
     title: "Personal subscriber who is also a member",
-    persona: "Frans, Personal Monthly (50 envelopes), member of Kenny's Business and of PT Privy (Demo) Enterprise",
-    description: "Own Personal plan keeps its 50-envelope limit; the other workspaces do not upgrade it. Buying Business here creates your own workspace and unlocks unlimited envelopes for you.",
+    persona: "Frans, Personal Monthly (3 of 50 envelopes left), member of Kenny's Business (plan ending 1 Oct) and of PT Privy (Demo) Enterprise",
+    description: "Own Personal plan keeps its 50-envelope limit; send 3 more and the paywall appears. Kenny cancelled his Business plan, so his workspace warns members it turns read-only on Oct 1. Buying Business here creates your own workspace and unlocks unlimited envelopes for you.",
     tag: "Workspaces",
   },
   {
@@ -486,7 +486,7 @@ export function buildScenario(id: string): AppState {
       return {
         ...s,
         card: VISA,
-        otherWorkspaces: [OTHER_BUSINESS, ENTERPRISE_ACTIVE],
+        otherWorkspaces: [{ ...OTHER_BUSINESS, endingAt: "2026-10-01T00:00:00.000Z" }, ENTERPRISE_ACTIVE],
         subscription: sub({ tier: "personal", interval: "monthly", currentPeriodStart: start, currentPeriodEnd: "2026-10-10T00:00:00.000Z", anchorDay: 10, renewalCount: 1, createdAt: "2026-08-10T09:00:00.000Z" }),
         usage: { envelopesSent: 47, templates: 4, contacts: 23 },
         invoices: [

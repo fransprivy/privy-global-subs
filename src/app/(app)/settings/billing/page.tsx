@@ -226,8 +226,8 @@ function TeamMembers() {
               Manage seats
             </button>
           )}
-          <button className="btn-primary !py-2" disabled={expired || free === 0} onClick={() => flows.open({ type: "invite" })} title={expired ? "Read-only workspace" : free === 0 ? "All seats are in use. Add seats first." : undefined}>
-            <IconPlus size={16} /> Invite member
+          <button className="btn-primary !py-2" disabled={expired} onClick={() => flows.open({ type: "invite" })} title={expired ? "Read-only workspace" : free === 0 ? "All seats are in use: the invite adds a seat, prorated to your renewal date." : undefined}>
+            <IconPlus size={16} /> Invite member{free === 0 && !expired ? " (+1 seat)" : ""}
           </button>
         </div>
       </div>
@@ -243,14 +243,19 @@ function TeamMembers() {
             </div>
             <span className="chip bg-[#eeeeee] text-ink-2">{m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member"}</span>
             {m.role !== "owner" && (
-              <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => api.removeMember(m.id)}>
-                <IconTrash size={14} /> Remove
-              </button>
+              <>
+                <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => flows.open({ type: "transfer", memberId: m.id })} title="Hand the workspace and its billing to this member">
+                  Make owner
+                </button>
+                <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => api.removeMember(m.id)}>
+                  <IconTrash size={14} /> Remove
+                </button>
+              </>
             )}
           </div>
         ))}
         <div className="px-5 py-3 text-sm text-muted">
-          {members.length} of {seats} seats in use{free > 0 ? ` · ${free} free seat${free > 1 ? "s" : ""} (still billed)` : " · add seats to invite more people"}. Removing a member frees the seat but does not change your bill until you reduce seats.
+          {members.length} of {seats} seats in use{free > 0 ? ` · ${free} free seat${free > 1 ? "s" : ""} (still billed)` : " · the next invite adds a seat"}. Removing a member frees the seat but does not change your bill until you reduce seats. "Make owner" hands the workspace and its billing to a member; your card is not charged again. <Spec id="R-81" />
         </div>
       </div>
     </section>
@@ -554,6 +559,7 @@ function BillRow({ bill, onPay, onCancel, highlight }: { bill: Bill; onPay: () =
         </p>
         <p className="text-sm text-muted">
           Covers {fmtDate(bill.periodStart)} to {fmtDate(bill.periodEnd)}. Pay by <strong className="text-ink">{fmtDate(bill.dueAt)}</strong> ({daysToDue === 0 ? "today" : `${daysToDue} day${daysToDue > 1 ? "s" : ""} left`}) or the plan ends on that day. No grace period for one-time payments.
+          {bill.tier === "business" && s.workspace.members.length > 1 ? ` ${s.workspace.members.length - 1} team member${s.workspace.members.length > 2 ? "s" : ""} would lose signing access.` : ""}
           {pending && (
             <>
               {" "}

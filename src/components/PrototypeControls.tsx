@@ -161,6 +161,9 @@ export function PrototypeControls() {
               <button className="btn-secondary !py-1.5 text-xs" disabled={!s.card} onClick={() => api.makeCardExpireSoon()}>
                 Make card expire this month
               </button>
+              <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.useUpQuota()} title="Sets the Individual envelope counter to its limit so the next send opens the paywall">
+                Use up envelope quota
+              </button>
               <Link href="/prototype/emails" className="btn-secondary !py-1.5 text-xs">
                 <IconMail size={14} /> Emails ({s.emails.length} sent)
               </Link>

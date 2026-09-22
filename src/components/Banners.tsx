@@ -157,6 +157,31 @@ export function Banners() {
     );
   }
 
+  // B-10: member view of a workspace whose owner's plan is ending, or whose new owner still has to set up payment (R-81).
+  const other = ws.role === "member" ? (s.otherWorkspaces ?? []).find((o) => o.id === ws.id) : undefined;
+  if (other && other.status === "active" && other.endingAt) {
+    items.push(
+      <Banner key="b10" tone="warn" icon={<IconClock size={20} />} spec="B-10">
+        <div className="flex-1">
+          <p className="font-semibold">
+            {other.paymentPending
+              ? `${other.ownerName} is the new owner of ${other.name} and has not set up payment yet.`
+              : `${other.ownerName}'s Business plan for ${other.name} ends on ${fmtDate(other.endingAt)}.`}
+          </p>
+          <p className="text-xs opacity-80">
+            {other.paymentPending
+              ? `The period already paid runs until ${fmtDate(other.endingAt)}. If no payment method is added by then, this workspace becomes read-only (view and download only).`
+              : `From that date this workspace becomes read-only: you can view and download envelopes but not sign or send. Download what you need, or ask ${other.ownerName} to keep the plan.`}{" "}
+            Your own plan is not affected.
+          </p>
+        </div>
+        <Link href="/envelopes" className="btn-secondary !py-1.5 text-xs">
+          Review envelopes
+        </Link>
+      </Banner>
+    );
+  }
+
   // Indonesia one-time plans: B-06 bill due, B-07 checkout still open, B-08 expired.
   const bill = openBill(s);
   if (isOneTimeUser(s) && bill && bill.status === "awaiting") {
@@ -167,7 +192,10 @@ export function Banners() {
           <p className="font-semibold">
             Your {planName(bill.tier, bill.interval)} bill of {fmtMoney(bill.amount)} is due by {fmtDate(bill.dueAt)} ({dl === 0 ? "today" : `${dl} day${dl === 1 ? "" : "s"} left`}).
           </p>
-          <p className="text-xs opacity-80">Pay it to keep your plan running to {fmtDate(bill.periodEnd)}. If it is not paid, your plan ends on {fmtDate(bill.dueAt)} with no grace period.</p>
+          <p className="text-xs opacity-80">
+            Pay it to keep your plan running to {fmtDate(bill.periodEnd)}. If it is not paid, your plan ends on {fmtDate(bill.dueAt)} with no grace period
+            {bill.tier === "business" && s.workspace.members.length > 1 ? ` and ${s.workspace.members.length - 1} team member${s.workspace.members.length > 2 ? "s" : ""} lose signing access` : ""}.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {convertEligible(s) && (

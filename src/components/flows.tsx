@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { ANNUAL_SAVINGS, TIER_LABEL } from "@/lib/catalog";
+import { ANNUAL_SAVINGS, TIER_LABEL, regionMeta } from "@/lib/catalog";
 import {
   activeSubscription,
   allCards,
@@ -13,6 +13,9 @@ import {
   currentSeats,
   downgradeLosses,
   individualPlan,
+  quotaResetDate,
+  regionOf,
+  workspaceView,
   isIndonesia,
   isOneTimeUser,
   pendingPayment,
@@ -46,6 +49,8 @@ export type Flow =
   | { type: "convert" }
   | { type: "invite" }
   | { type: "leave"; id: string }
+  | { type: "paywall" }
+  | { type: "transfer"; memberId?: string }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
   | { type: "handover" };
@@ -101,6 +106,10 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <InviteModal close={close} />;
     case "leave":
       return <LeaveWorkspaceModal close={close} id={flow.id} />;
+    case "paywall":
+      return <PaywallModal close={close} />;
+    case "transfer":
+      return <TransferOwnershipModal close={close} memberId={flow.memberId} />;
     case "authenticate":
       return <AuthenticateFlow close={close} />;
     case "optin":
@@ -1066,14 +1075,38 @@ function HandoverModal({ close }: { close: () => void }) {
   );
 }
 
-/** R-78: invite a member into the owned Business workspace, limited by the seat count. */
+/** R-78: invite a member into the owned Business workspace. When every seat is taken, one seat is added and paid (prorated) in the same flow (UX-29). */
 function InviteModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [ack, setAck] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const sub = activeSubscription(s);
   const seats = currentSeats(s);
   const used = s.workspace.members.length;
-  const ok = /.+@.+\..+/.test(email) && used < seats;
+  const full = used >= seats;
+  const emailOk = /.+@.+\..+/.test(email);
+  // Recurring subscriptions can add a seat now; one-time (Indonesia) periods have fixed seats.
+  const canBuySeat = full && !!sub && sub.tier === "business" && !!s.card;
+  const preview = canBuySeat ? previewSeatChange(s, seats + 1) : null;
+  const consentText = preview && sub ? `I agree to be charged ${fmtMoney(preview.chargeToday)} today for 1 additional seat and ${fmtMoney(preview.nextRenewalAmount)} every ${intervalWord(sub.interval)} from ${fmtDate(sub.currentPeriodEnd)} until I cancel.` : "";
+  const ok = emailOk && (!full || (canBuySeat && ack)) && !busy;
+
+  function send() {
+    if (full && canBuySeat) {
+      setBusy(true);
+      setTimeout(() => {
+        api.changeSeats(seats + 1, consentText);
+        api.inviteMember(name, email);
+        close();
+      }, 700);
+      return;
+    }
+    api.inviteMember(name, email);
+    close();
+  }
+
   return (
     <Modal
       open
@@ -1085,15 +1118,8 @@ function InviteModal({ close }: { close: () => void }) {
           <button className="btn-secondary" onClick={close}>
             Cancel
           </button>
-          <button
-            className="btn-primary"
-            disabled={!ok}
-            onClick={() => {
-              api.inviteMember(name, email);
-              close();
-            }}
-          >
-            Send invitation
+          <button className="btn-primary" disabled={!ok} onClick={send}>
+            {busy ? "Processing…" : full && preview ? `Add seat, pay ${fmtMoney(preview.chargeToday)} and invite` : "Send invitation"}
           </button>
         </>
       }
@@ -1110,7 +1136,176 @@ function InviteModal({ close }: { close: () => void }) {
           <label className="block text-[15px] font-medium text-ink">Email</label>
           <input className="input mt-1" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
         </div>
-        {used >= seats && <p className="text-xs text-danger">All seats are in use. Close this and use Manage seats to add one (prorated to your renewal date).</p>}
+        {full && preview && sub && (
+          <div className="rounded-xl border border-line bg-page p-4">
+            <p className="flex items-center gap-2 font-medium text-ink">
+              <IconPlus size={16} /> All seats are taken: add 1 seat for this invite <Spec id="UX-29" />
+            </p>
+            <div className="mt-2 space-y-1 text-ink-2">
+              <div className="flex justify-between">
+                <span>
+                  Today, prorated {preview.remainingDays} of {preview.periodDays} days
+                </span>
+                <strong className="text-ink">{fmtMoney(preview.chargeToday)}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>
+                  From {fmtDate(sub.currentPeriodEnd)}, {seats + 1} seats every {intervalWord(sub.interval)}
+                </span>
+                <strong className="text-ink">{fmtMoney(preview.nextRenewalAmount)}</strong>
+              </div>
+              <p className="text-xs text-muted">
+                Charged to {s.card ? `card ending ${s.card.last4}` : "your card"}. Same renewal date as today; one Business subscription keeps one end date.
+              </p>
+            </div>
+            <div className="mt-3">
+              <Checkbox checked={ack} onChange={setAck} id="invite-seat-consent">
+                {consentText} <Spec id="R-12" />
+              </Checkbox>
+            </div>
+          </div>
+        )}
+        {full && !canBuySeat && (
+          <p className="text-xs text-danger">
+            All seats are in use.{" "}
+            {sub ? "Add a card in Payment methods to buy a seat." : "Seats on a one-time period are fixed; buy the next period with more seats, or remove a member first."}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** M-17: quota exhausted paywall. Opens when Send / New envelope is pressed with 0 sends left (UX-28). */
+function PaywallModal({ close }: { close: () => void }) {
+  const { s } = useAppState();
+  const flows = useFlows();
+  const plan = individualPlan(s);
+  const ws = workspaceView(s);
+  const limit = ws.envelopeLimit ?? 0;
+  const reset = quotaResetDate(s);
+  const region = regionMeta(regionOf(s));
+  const personalPrice = fmtMoney(planPrice("personal", "monthly", 1));
+  const businessPrice = fmtMoney(planPrice("business", "monthly", 1));
+  const go = (tier: PaidTier) => {
+    close();
+    flows.open({ type: "plan", tier, interval: "monthly" });
+  };
+  return (
+    <Modal open onClose={close} title={`You have used all ${limit} envelopes this month`} spec="M-17" width="max-w-2xl">
+      <div className="space-y-4 text-sm text-ink-2">
+        <p>
+          Your {plan === "free" ? "Free" : "Personal"} plan includes {limit} envelopes a month. The counter resets on <strong className="text-ink">{fmtDate(reset)}</strong>. To keep sending today, upgrade; the new limit applies immediately.
+        </p>
+        <div className={`grid gap-3 ${plan === "free" ? "sm:grid-cols-2" : ""}`}>
+          {plan === "free" && (
+            <button type="button" onClick={() => go("personal")} className="rounded-2xl border border-line-2 p-5 text-left hover:border-ink">
+              <p className="text-[17px] font-semibold text-ink">Personal</p>
+              <p className="mt-1 font-display text-2xl font-semibold text-ink">
+                {personalPrice} <span className="text-sm font-normal text-muted">/ month · {region.taxNote}</span>
+              </p>
+              <ul className="mt-3 space-y-1">
+                <li>50 envelopes a month (600 a year on the yearly plan)</li>
+                <li>Unlimited templates, reports and analytics</li>
+              </ul>
+              <span className="btn-secondary mt-4 w-full">Upgrade to Personal</span>
+            </button>
+          )}
+          <button type="button" onClick={() => go("business")} className="relative rounded-2xl border border-maroon p-5 text-left hover:bg-brand-tint/20">
+            <span className="absolute -top-px right-0 rounded-bl-lg rounded-tr-[15px] bg-maroon px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">Unlimited</span>
+            <p className="text-[17px] font-semibold text-ink">Business</p>
+            <p className="mt-1 font-display text-2xl font-semibold text-ink">
+              {businessPrice} <span className="text-sm font-normal text-muted">/ seat / month · {region.taxNote}</span>
+            </p>
+            <ul className="mt-3 space-y-1">
+              <li>Unlimited envelopes, here and in a new team workspace</li>
+              <li>Invite your team, delegation, automation, e-Seal, branding</li>
+            </ul>
+            <span className="btn-primary mt-4 w-full">Upgrade to Business</span>
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <span>Or wait until {fmtDate(reset)}: your documents and drafts are kept, nothing is lost.</span>
+          <button className="btn-ghost !py-1.5 text-xs" onClick={close}>
+            Not now
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** M-18: transfer ownership of the owned Business workspace to a member (R-81). */
+function TransferOwnershipModal({ close, memberId }: { close: () => void; memberId?: string }) {
+  const { s, api } = useAppState();
+  const router = useRouter();
+  const others = s.workspace.members.filter((m) => m.role !== "owner");
+  const [pick, setPick] = useState(memberId ?? others[0]?.id ?? "");
+  const [ack, setAck] = useState(false);
+  const sub = activeSubscription(s);
+  const periodEnd = sub ? sub.currentPeriodEnd : prepaidEnd(s);
+  const m = others.find((x) => x.id === pick);
+  const plan = individualPlan(s);
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Transfer ownership of ${s.workspace.name}`}
+      spec="M-18"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Cancel
+          </button>
+          <button
+            className="btn-danger"
+            disabled={!m || !ack}
+            onClick={() => {
+              api.transferOwnership(pick);
+              close();
+              router.push("/settings/billing");
+            }}
+          >
+            Transfer to {m?.name ?? "…"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm text-ink-2">
+        {others.length === 0 ? (
+          <p>Invite a member first; ownership can only go to an existing member.</p>
+        ) : (
+          <div>
+            <label className="block text-[15px] font-medium text-ink">New owner</label>
+            <select className="input mt-1" value={pick} onChange={(e) => setPick(e.target.value)}>
+              {others.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} · {o.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="rounded-xl bg-page p-4">
+          <p className="font-medium text-ink">What happens to billing</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>
+              Your card is detached today and <strong className="text-ink">will not be charged again</strong> for this workspace. Nothing is refunded for the current period.
+            </li>
+            <li>
+              The period already paid keeps the workspace active until <strong className="text-ink">{periodEnd ? fmtDate(periodEnd) : "the end of the paid period"}</strong>.
+            </li>
+            <li>
+              {m?.name ?? "The new owner"} must add a payment method (or, in Indonesia, pay the next bill) before that date; otherwise the workspace becomes read-only until it is reactivated. <Spec id="R-81" />
+            </li>
+            <li>
+              You stay in the workspace as a member. Your Individual workspace goes back to {plan === "personal_plus" ? "its own plan (Free unless you buy Personal)" : plan === "personal" ? "Personal" : "Free"} right away, since the owner perk moves with ownership.
+            </li>
+          </ul>
+        </div>
+        <Checkbox checked={ack} onChange={setAck} id="transfer-ack">
+          I understand my card will not be charged again and {m?.name ?? "the new owner"} needs to set up payment before {periodEnd ? fmtDate(periodEnd) : "the period ends"}.
+        </Checkbox>
       </div>
     </Modal>
   );

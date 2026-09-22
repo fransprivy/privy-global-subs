@@ -6,6 +6,7 @@
 
 export interface EmailCtx {
   name: string;
+  memberName?: string;
   planName: string; // e.g. "Personal Monthly"
   tierLabel: string; // e.g. "Personal"
   intervalWord: "month" | "year";
@@ -44,7 +45,7 @@ export interface EmailTemplateMeta {
   trigger: string;
   timing: string;
   legal: string;
-  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Indonesia" | "Other";
+  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Indonesia" | "Workspaces" | "Other";
 }
 
 export interface RenderedEmail {
@@ -82,6 +83,8 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-30", name: "Bill issued (one-time plan)", trigger: "Indonesia one-time plan, 7 days before expiry", timing: "T-7", legal: "Recommended", group: "Indonesia" },
   { id: "N-30b", name: "Bill reminder", trigger: "Bill still unpaid", timing: "T-3 and T-1", legal: "Recommended", group: "Indonesia" },
   { id: "N-31", name: "Plan expired (one-time)", trigger: "Bill not paid by the expiry date", timing: "At expiry, no grace", legal: "Recommended", group: "Indonesia" },
+  { id: "N-35", name: "You are the new owner: set up payment", trigger: "Ownership transferred to this member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
+  { id: "N-36", name: "Ownership transferred (old owner)", trigger: "Owner handed the workspace to a member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
   { id: "N-32", name: "Payment received (one-time)", trigger: "Payment ID paid via QRIS / VA / card", timing: "Immediately", legal: "Receipt expected", group: "Indonesia" },
   { id: "N-33", name: "Payment ID expired", trigger: "Payment ID not paid within 2 hours", timing: "At expiry of the Payment ID", legal: "No", group: "Indonesia" },
   { id: "N-34", name: "Auto-renewal turned on", trigger: "One-time user converted to auto-renewal", timing: "Immediately", legal: "Yes: express consent to recurring charge", group: "Indonesia" },
@@ -325,7 +328,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         subject: `Your Privy ${c.planName} expires on ${c.prepaidEnd}: pay to continue`,
         body: [
           `Your one-time ${c.planName} plan ends on ${c.prepaidEnd}. To keep it for the next period (until ${c.newEnd}) pay ${c.amount} before then. Nothing is charged automatically.`,
-          `Pay with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card. If you do nothing, your account moves to Free on ${c.prepaidEnd} with your documents kept.`,
+          `Pay with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card. If you do nothing, your account moves to Free on ${c.prepaidEnd} with your documents kept${c.isBusiness && c.memberCount > 0 ? `, and ${c.workspaceName} becomes read-only for your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"}` : ""}.`,
           `Prefer not to think about it? Turn on auto-renewal with a card and we handle it each period.`,
         ],
         cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
@@ -333,14 +336,33 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-30b":
       return {
         subject: `${c.daysLeft} day${c.daysLeft === 1 ? "" : "s"} left: your Privy ${c.planName} expires on ${c.prepaidEnd}`,
-        body: [`Your bill of ${c.amount} is still unpaid. Pay before ${c.prepaidEnd} to continue without interruption; there is no grace period for one-time plans.`],
+        body: [`Your bill of ${c.amount} is still unpaid. Pay before ${c.prepaidEnd} to continue without interruption; there is no grace period for one-time plans.${c.isBusiness && c.memberCount > 0 ? ` Your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"} in ${c.workspaceName} lose signing access on that date.` : ""}`],
         cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
       };
     case "N-31":
       return {
         subject: `Your Privy ${c.tierLabel} plan has expired`,
-        body: [`The bill was not paid by ${c.prepaidEnd}, so your account is now on the Free plan. Your documents are safe. You can buy a new period any time.`],
+        body: [`The bill was not paid by ${c.prepaidEnd}, so your account is now on the Free plan. Your documents are safe. You can buy a new period any time.${c.isBusiness && c.memberCount > 0 ? ` ${c.workspaceName} is read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"} until you reactivate.` : ""}`],
         cta: { label: "Buy a plan", href: "/plans" },
+      };
+    case "N-35":
+      return {
+        subject: `You now own ${c.workspaceName} on Privy: add a payment method before ${c.nextDate}`,
+        body: [
+          `${c.name} transferred ownership of ${c.workspaceName} to you. The current paid period runs until ${c.nextDate}; nothing changes for members until then.`,
+          `To keep the workspace running after ${c.nextDate}, add a card (or, in Indonesia, pay the next bill). If no payment method is set up by then, the workspace becomes read-only until it is reactivated.`,
+          `As the owner, your Individual workspace now gets unlimited envelopes, included with Business.`,
+        ],
+        cta: { label: "Set up payment", href: "/settings/billing" },
+      };
+    case "N-36":
+      return {
+        subject: `${c.workspaceName} now belongs to ${c.memberName}`,
+        body: [
+          `You handed ${c.workspaceName} over to ${c.memberName}. Your card will not be charged for it again; the period already paid runs until ${c.nextDate}.`,
+          `You stay in the workspace as a member. Your Individual workspace goes back to its own plan.`,
+        ],
+        cta: { label: "View billing", href: "/settings/billing" },
       };
     case "N-32":
       return {

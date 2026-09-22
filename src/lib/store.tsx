@@ -43,6 +43,10 @@ interface StoreApi {
   inviteMember: (name: string, email: string) => void;
   removeMember: (id: string) => void;
   leaveWorkspace: (id: string) => void;
+  /** Returns false when the quota is exhausted (caller shows the paywall). */
+  sendEnvelope: () => boolean;
+  useUpQuota: () => void;
+  transferOwnership: (memberId: string) => void;
   dismissWelcome: () => void;
   setPrefs: (prefs: Partial<WorkspacePrefs>) => void;
   startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }) => void;
@@ -172,6 +176,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       inviteMember: (name, email) => update((s) => E.inviteMember(s, name, email)),
       removeMember: (id) => update((s) => E.removeMember(s, id)),
       leaveWorkspace: (id) => update((s) => E.leaveWorkspace(s, id)),
+      sendEnvelope: () => {
+        const cur = stateRef.current;
+        if (!cur) return false;
+        const next = E.sendEnvelope(cur);
+        if (!next) return false;
+        update(() => next);
+        return true;
+      },
+      useUpQuota: () => update((s) => E.useUpQuota(s)),
+      transferOwnership: (memberId) => update((s) => E.transferOwnership(s, memberId)),
       dismissWelcome: () => update((s) => ({ ...s, ui: { ...s.ui, welcomeBusiness: false } })),
       setPrefs: (prefs) => update((s) => ({ ...s, prefs: { timezone: "auto", dateFormat: "dd MMM yyyy", ...(s.prefs ?? {}), ...prefs } })),
       startOneTimePurchase: (input) => update((s) => E.startOneTimePurchase(s, input)),

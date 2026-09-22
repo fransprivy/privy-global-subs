@@ -177,6 +177,8 @@ export type HistoryType =
   | "member_invited"
   | "member_removed"
   | "workspace_left"
+  | "ownership_transferred"
+  | "envelope_sent"
   | "note";
 
 export interface HistoryEvent {
@@ -250,6 +252,10 @@ export interface OtherWorkspace {
   ownerName: string;
   status: "active" | "expired";
   expiredAt?: string | null;
+  /** The owner's plan is scheduled to end on this date (cancel or downgrade): the workspace becomes read-only then (B-10). */
+  endingAt?: string | null;
+  /** Ownership was just transferred to this owner and they have not added a payment method yet (R-81). */
+  paymentPending?: boolean;
   /** Enterprise: contract end shown on the billing page. */
   contractEnd?: string | null;
   initials: string;
