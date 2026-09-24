@@ -178,6 +178,8 @@ export type HistoryType =
   | "member_removed"
   | "workspace_left"
   | "ownership_transferred"
+  | "workspace_deleted"
+  | "role_changed"
   | "envelope_sent"
   | "note";
 
@@ -256,6 +258,11 @@ export interface OtherWorkspace {
   endingAt?: string | null;
   /** Ownership was just transferred to this owner and they have not added a payment method yet (R-81). */
   paymentPending?: boolean;
+  /** The user's role in this workspace. Admins manage members; only the owner touches the plan (R-82). */
+  myRole?: "admin" | "member";
+  /** Member list as the user sees it (admins can invite and remove). */
+  members?: Member[];
+  seats?: number;
   /** Enterprise: contract end shown on the billing page. */
   contractEnd?: string | null;
   initials: string;

@@ -21,7 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!ready || !state) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted">
-        Loading prototype…
+        Loading…
       </div>
     );
   }

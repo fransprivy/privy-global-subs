@@ -27,7 +27,8 @@ export function useCta() {
       if (target === "personal") return { label: "Included with Business", kind: "disabled" };
       if (target === "business" && !(sub?.scheduledChange)) return { label: `Your plan · in ${s.workspace.name}`, kind: "switch" };
     }
-    if (ws.kind === "business" && target === "business" && workspaceStatus(s) === "expired" && !sub) {
+    // An expired Business workspace is always reactivated, never "upgraded to" again, from any workspace (R-75).
+    if (target === "business" && workspaceStatus(s) === "expired" && !(sub?.scheduledChange?.tier === "business")) {
       return { label: "Reactivate Business", kind: "action" };
     }
     if (ws.kind === "business" && target === "personal" && !sub && workspaceStatus(s) === "expired") {
@@ -229,9 +230,7 @@ export function CompareTable({ interval, showCtas = true, title = "Compare featu
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-center text-xs text-muted">
-        <CatalogNote />
-      </p>
+      <CatalogNote />
     </section>
   );
 }
@@ -271,8 +270,8 @@ function CatalogNote() {
   const { s } = useAppState();
   const m = regionMeta(regionOf(s));
   return (
-    <>
-      {m.market === "indonesia" ? "Prices for Indonesia in IDR, includes PPN. Personal and Business plans are the same product as in every other region." : "Plan facts follow privyid.com/pricing (Australia, AUD, after tax)."} <Spec id="catalog" />
-    </>
+    <p className="mt-3 text-center text-xs text-muted">
+      Prices in {m.currency}, {m.taxNote}.{s.ui.showSpecTags && (m.market === "indonesia" ? " Personal and Business are the same product as in every other region." : " Plan facts follow privyid.com/pricing.")} <Spec id="catalog" />
+    </p>
   );
 }

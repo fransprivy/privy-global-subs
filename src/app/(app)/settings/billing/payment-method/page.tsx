@@ -119,11 +119,11 @@ export default function PaymentMethodPage() {
         <div className="mt-6 rounded-xl bg-page p-5 text-sm text-ink-2">
           <p className="font-medium text-ink">How we use your cards</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            <li>Renewals are charged automatically on your billing date, at 00:00 UTC, to your default card. Yearly plans get a reminder 30 and 7 days before.</li>
+            <li>Renewals are charged automatically on your billing date to your default card. Yearly plans get a reminder 30 and 7 days before.</li>
             <li>If the default card is declined we immediately try each backup card in order. Only if every card fails do we start the 14-day grace period (retries on Day 3, 7 and 14, and right away when you update a card).</li>
             <li>Adding or replacing a card never charges you. Your bank may ask you to confirm the new card.</li>
             <li>The default card can be removed only when a backup exists (the first backup becomes the default) or when you have no active subscription.</li>
-            <li>Card details are stored by Stripe; Privy only keeps the brand, last four digits and expiry.</li>
+            <li>Card details are stored by our payment provider; Privy only keeps the brand, last four digits and expiry.</li>
           </ul>
         </div>
       </div>
@@ -148,9 +148,10 @@ function CardRow({
   onSetDefault: () => void;
   onRemove: () => void;
 }) {
+  const helpers = useAppState().s.ui.showSpecTags;
   const expiring = sub && cardExpiresBefore(card, sub.currentPeriodEnd);
   const behaviourNote =
-    card.behavior === "soft_decline" ? "Prototype: this test card soft-declines" : card.behavior === "hard_decline" ? "Prototype: this test card hard-declines" : card.behavior === "requires_action" ? "Prototype: this test card asks for 3DS" : null;
+    !helpers ? null : card.behavior === "soft_decline" ? "Test card: soft-declines" : card.behavior === "hard_decline" ? "Test card: hard-declines" : card.behavior === "requires_action" ? "Test card: asks for 3DS" : null;
   return (
     <div className={`card flex flex-col gap-4 p-5 sm:flex-row sm:items-center ${isDefault ? "border-ink" : ""}`}>
       <div className={`flex h-[104px] w-[176px] shrink-0 flex-col justify-between rounded-xl p-3.5 text-white ${isDefault ? "bg-gradient-to-br from-[#2b2b2f] to-[#111]" : "bg-gradient-to-br from-[#6e6e73] to-[#4a4a4f]"}`}>

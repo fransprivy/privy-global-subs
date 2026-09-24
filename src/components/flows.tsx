@@ -12,6 +12,8 @@ import {
   CONFIG,
   currentSeats,
   downgradeLosses,
+  handoverOptions,
+  type HandoverDestination,
   individualPlan,
   quotaResetDate,
   regionOf,
@@ -32,7 +34,7 @@ import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
 import { CheckoutDrawer, type CheckoutMode } from "./CheckoutDrawer";
 import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, IconPlus, IconWarning } from "./Icons";
-import { CardBrandBadge, CardForm, cardFormValid, cardFromForm, ThreeDSModal, type CardFormValue } from "./payments";
+import { CardBrandBadge, CardForm, cardFormValid, cardFromForm, Radio, ThreeDSModal, type CardFormValue } from "./payments";
 import { ConvertModal, OneTimeCheckoutDrawer, PaymentDetailDrawer, PurchaseTypeModal } from "./onetime";
 import { Checkbox, Modal, Spec } from "./ui";
 
@@ -54,7 +56,9 @@ export type Flow =
   | { type: "transfer"; memberId?: string }
   | { type: "authenticate" }
   | { type: "optin"; tier?: PaidTier; interval?: Interval }
-  | { type: "handover" };
+  | { type: "handover"; ids?: string[] }
+  | { type: "deleteWorkspace" }
+  | { type: "adminInvite"; wsId: string };
 
 interface FlowApi {
   open: (f: Flow) => void;
@@ -118,7 +122,11 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
     case "optin":
       return <OptInModal close={close} tier={flow.tier} interval={flow.interval} />;
     case "handover":
-      return <HandoverModal close={close} />;
+      return <HandoverModal close={close} ids={flow.ids} />;
+    case "deleteWorkspace":
+      return <DeleteWorkspaceModal close={close} />;
+    case "adminInvite":
+      return <AdminInviteModal close={close} wsId={flow.wsId} />;
   }
 }
 
@@ -340,9 +348,11 @@ function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onS
         <div className="space-y-3 pt-1">
           {scheduledPrimary ? laterBtn : nowBtn}
           {scheduledPrimary ? nowBtn : laterBtn}
-          <p className="text-center text-[11px] text-muted">
-            Smart default: the scheduled option is primary when more than {CONFIG.smartDefaultThresholdDays} days remain. <Spec id="UX-04" />
-          </p>
+          {s.ui.showSpecTags && (
+            <p className="text-center text-[11px] text-muted">
+              Smart default: the scheduled option is primary when more than {CONFIG.smartDefaultThresholdDays} days remain. <Spec id="UX-04" />
+            </p>
+          )}
         </div>
       </div>
     </Modal>
@@ -541,7 +551,7 @@ function CancelModal({ close }: { close: () => void }) {
             </button>
           </div>
         )}
-        <p className="text-xs text-muted">Two clicks, no call, no chat, no email required. You can resume with one click before {fmtDate(accessUntil)}. <Spec id="UX-11" /></p>
+        <p className="text-xs text-muted">Changed your mind? Resume any time before {fmtDate(accessUntil)}. <Spec id="UX-11" /></p>
       </div>
     </Modal>
   );
@@ -868,7 +878,7 @@ function SeatsModal({ close }: { close: () => void }) {
             <div className="rounded-xl bg-page p-4">
               <p className="font-medium text-ink">Nothing charged or refunded today</p>
               <p className="mt-1 text-xs text-ink-2">
-                You keep {sub.seats} seats until {fmtDate(sub.currentPeriodEnd)}. From then you pay {fmtMoney(p.nextRenewalAmount)} per {intervalWord(sub.interval)} for {target} seats. Seats reduced mid-period are not refunded (no-refund policy); you can undo until the renewal date. <Spec id="Rule D" />
+                You keep {sub.seats} seats until {fmtDate(sub.currentPeriodEnd)}. From then you pay {fmtMoney(p.nextRenewalAmount)} per {intervalWord(sub.interval)} for {target} seats. Seats removed mid-period are not refunded. You can undo until the renewal date. <Spec id="Rule D" />
               </p>
             </div>
           )}
@@ -951,7 +961,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
         <div className="flex flex-col items-center py-4 text-center">
           <span className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-success-tint text-success"><IconCheckCircle size={32} /></span>
           <p>
-            Your prepaid time runs until <strong className="text-ink">{fmtDate(pe)}</strong>. On that date we charge {fmtMoney(amount)} for {planName(tier, interval)} and your plan continues without interruption.
+            Your current plan runs until <strong className="text-ink">{fmtDate(pe)}</strong>. On that date we charge {fmtMoney(amount)} for {planName(tier, interval)} and your plan continues without interruption.
           </p>
           <p className="mt-2 text-xs text-muted">Nothing was charged today. Cancel any time before {fmtDate(pe)} from Plan settings.</p>
         </div>
@@ -964,7 +974,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
       <Modal
         open
         onClose={close}
-        title={upgrading ? `Upgrade to ${TIER_LABEL[tier]} when your prepaid time ends` : "Turn on auto-renewal"}
+        title={upgrading ? `Upgrade to ${TIER_LABEL[tier]} when your current plan ends` : "Turn on auto-renewal"}
         spec={upgrading ? "R-43" : "UX-24"}
         width="max-w-xl"
         footer={
@@ -1008,7 +1018,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
           <Checkbox checked={consent} onChange={setConsent} id="optin-consent">
             {text}
           </Checkbox>
-          <p className="text-xs text-muted">No pre-ticked boxes, no countdown. If you do nothing, your account moves to Free on {fmtDate(pe)}.</p>
+          <p className="text-xs text-muted">If you do nothing, your account moves to Free on {fmtDate(pe)}.</p>
         </div>
       </Modal>
       {stage === "3ds" && (
@@ -1018,32 +1028,43 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
   );
 }
 
-/* Handover: reuses the existing Document Handover feature (stub in the prototype). */
-function HandoverModal({ close }: { close: () => void }) {
+/**
+ * Handover (R-79). Moves envelopes between workspaces:
+ * Individual → own Business; own Business → Individual or to each uploader; member workspace → own Individual (own uploads only).
+ */
+function HandoverModal({ close, ids }: { close: () => void; ids?: string[] }) {
   const { s, api } = useAppState();
-  const docs = s.workspace.documents ?? [];
-  const others = s.workspace.members.filter((m) => m.role !== "owner");
+  const ws = workspaceView(s);
+  const opts = handoverOptions(s);
+  const docs = ws.documents.filter(opts.eligible).filter((d) => !ids || ids.includes(d.id));
+  const [dest, setDest] = useState<HandoverDestination>(opts.destinations[0] ?? "individual");
   const [done, setDone] = useState(false);
+  const uploaders = Array.from(new Set(docs.map((d) => d.from)));
+  const destLabel = (d: HandoverDestination) =>
+    d === "business" ? `${s.workspace.name} (Business)` : d === "individual" ? `${s.user.name} (Individual)` : "Each uploader's Individual workspace";
   return (
     <Modal
       open
       onClose={close}
-      title="Hand over workspace documents"
+      title="Hand over envelopes"
       spec="UX-08"
       footer={
         <>
           <button className="btn-secondary" onClick={close}>
-            Close
+            {done ? "Close" : "Cancel"}
           </button>
-          {!done && docs.length > 0 && (
+          {!done && docs.length > 0 && opts.destinations.length > 0 && (
             <button
               className="btn-primary"
               onClick={() => {
-                api.handoverDocuments();
+                api.handoverSelected(
+                  docs.map((d) => d.id),
+                  dest
+                );
                 setDone(true);
               }}
             >
-              Hand over {docs.length} document{docs.length === 1 ? "" : "s"} to me
+              Hand over {docs.length} envelope{docs.length === 1 ? "" : "s"}
             </button>
           )}
         </>
@@ -1051,29 +1072,100 @@ function HandoverModal({ close }: { close: () => void }) {
     >
       {done ? (
         <p className="flex items-center gap-2 text-success">
-          <IconCheckCircle size={18} /> Done. The documents are now in your Individual workspace and stay there whatever happens to {s.workspace.name}.
+          <IconCheckCircle size={18} /> Done. The envelopes are now in {destLabel(dest).toLowerCase().startsWith("each") ? "their uploaders' Individual workspaces" : destLabel(dest)}.
         </p>
       ) : docs.length === 0 ? (
-        <p className="text-sm text-ink-2">There are no documents left in {s.workspace.name}.</p>
+        <p className="text-sm text-ink-2">{ws.role === "member" ? "Only envelopes you uploaded can be handed over." : "There are no envelopes to hand over."}</p>
       ) : (
-        <div className="space-y-3 text-sm">
-          <p>
-            Move every envelope in <strong className="text-ink">{s.workspace.name}</strong> to your Individual workspace ({s.user.name}). Use this before the workspace expires, or any time while it is read-only, so nothing depends on the Business plan. <Spec id="R-79" />
-          </p>
-          <ul className="max-h-48 list-disc overflow-y-auto pl-5 text-ink-2">
-            {docs.map((d) => (
-              <li key={d.id}>
-                {d.title} <span className="text-muted">· from {d.from}</span>
-              </li>
-            ))}
-          </ul>
-          {others.length > 0 && (
-            <p className="text-xs text-muted">
-              Includes documents owned by {others.length} member{others.length === 1 ? "" : "s"} ({others.map((m) => m.name).join(", ")}). Members keep view and download access to the workspace while it is expired.
+        <div className="space-y-4 text-sm">
+          <div>
+            <p className="font-medium text-ink">Move to</p>
+            <div className="mt-2 space-y-2">
+              {opts.destinations.map((d) => (
+                <button key={d} type="button" onClick={() => setDest(d)} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left ${dest === d ? "border-ink" : "border-line-2 hover:bg-page"}`}>
+                  <span>
+                    <span className="block text-[15px] font-medium text-ink">{destLabel(d)}</span>
+                    <span className="block text-xs text-muted">
+                      {d === "uploaders"
+                        ? `${uploaders.length} uploader${uploaders.length === 1 ? "" : "s"}: ${uploaders.join(", ")}`
+                        : d === "business"
+                          ? "Your team can see and work on them there."
+                          : "They stay with you whatever happens to the Business plan."}
+                    </span>
+                  </span>
+                  <Radio on={dest === d} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="font-medium text-ink">
+              {docs.length} envelope{docs.length === 1 ? "" : "s"}
             </p>
-          )}
+            <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto text-ink-2">
+              {docs.map((d) => (
+                <li key={d.id} className="flex justify-between gap-3">
+                  <span className="truncate">{d.title}</span>
+                  <span className="shrink-0 text-xs text-muted">{d.from}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="text-xs text-muted">Signatures, audit trails and completed status travel with the envelope. This cannot be undone from here.</p>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** M-19: delete an expired Business workspace so a new one can be created later (R-83). */
+function DeleteWorkspaceModal({ close }: { close: () => void }) {
+  const { s, api } = useAppState();
+  const router = useRouter();
+  const docs = (s.workspace.documents ?? []).length;
+  const [handover, setHandover] = useState(true);
+  const [confirm, setConfirm] = useState("");
+  const ok = confirm.trim() === s.workspace.name;
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Delete ${s.workspace.name}?`}
+      spec="M-19"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Cancel
+          </button>
+          <button
+            className="btn-danger"
+            disabled={!ok}
+            onClick={() => {
+              api.deleteWorkspace(handover);
+              close();
+              router.push("/home");
+            }}
+          >
+            Delete workspace
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm text-ink-2">
+        <p>
+          The workspace, its {s.workspace.members.length - 1} member{s.workspace.members.length === 2 ? "" : "s"} and its settings are removed. You can create a new Business workspace from scratch the next time you buy Business.
+        </p>
+        {docs > 0 && (
+          <Checkbox checked={handover} onChange={setHandover} id="delete-handover">
+            Move the {docs} envelope{docs === 1 ? "" : "s"} to my Individual workspace first
+          </Checkbox>
+        )}
+        {docs > 0 && !handover && <p className="text-xs text-danger">Envelopes that are not moved stay downloadable for 90 days, then they are deleted.</p>}
+        <div>
+          <label className="block text-[15px] font-medium text-ink">Type the workspace name to confirm</label>
+          <input className="input mt-1" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={s.workspace.name} />
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -1252,7 +1344,7 @@ function UploadDocumentScreen({ close }: { close: () => void }) {
             </button>
           </div>
         </div>
-        <p className="mt-8 text-center text-xs text-muted">Prototype: choosing a file counts one envelope against the workspace quota. <Spec id="UX-28" /></p>
+        {s.ui.showSpecTags && <p className="mt-8 text-center text-xs text-muted">Prototype: choosing a file counts one envelope against the workspace quota. <Spec id="UX-28" /></p>}
       </div>
       {paywall && <PaywallModal close={() => setPaywall(false)} />}
     </div>
@@ -1452,6 +1544,59 @@ function TransferOwnershipModal({ close, memberId }: { close: () => void; member
         <Checkbox checked={ack} onChange={setAck} id="transfer-ack">
           I understand my card will not be charged again and {m?.name ?? "the new owner"} needs to set up payment before {periodEnd ? fmtDate(periodEnd) : "the period ends"}.
         </Checkbox>
+      </div>
+    </Modal>
+  );
+}
+
+/** Admin of someone else's workspace invites a member (R-82). */
+function AdminInviteModal({ close, wsId }: { close: () => void; wsId: string }) {
+  const { s, api } = useAppState();
+  const o = (s.otherWorkspaces ?? []).find((x) => x.id === wsId);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  if (!o) {
+    close();
+    return null;
+  }
+  const used = (o.members ?? []).length;
+  const ok = /.+@.+\..+/.test(email) && (!o.seats || used < o.seats);
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={`Invite to ${o.name}`}
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Cancel
+          </button>
+          <button
+            className="btn-primary"
+            disabled={!ok}
+            onClick={() => {
+              api.adminInvite(wsId, name, email);
+              close();
+            }}
+          >
+            Send invitation
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-ink-2">
+          {used} of {o.seats ?? "?"} seats in use. Seats are billed to {o.ownerName}.
+        </p>
+        <div>
+          <label className="block text-[15px] font-medium text-ink">Name</label>
+          <input className="input mt-1" value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
+        </div>
+        <div>
+          <label className="block text-[15px] font-medium text-ink">Email</label>
+          <input className="input mt-1" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
+        </div>
+        {o.seats && used >= o.seats ? <p className="text-xs text-danger">All seats are in use. Ask {o.ownerName} to add seats.</p> : null}
       </div>
     </Modal>
   );

@@ -80,7 +80,7 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "business-member-personal",
     title: "Personal subscriber who is also a member",
-    persona: "Frans, Personal Monthly (3 of 50 envelopes left), member of Kenny's Business (plan ending 1 Oct) and of PT Privy (Demo) Enterprise",
+    persona: "Frans, Personal Monthly (3 of 50 envelopes left), admin in Kenny's Business (plan ending 1 Oct) and member of PT Privy (Demo) Enterprise",
     description: "Own Personal plan keeps its 50-envelope limit; send 3 more and the paywall appears. Kenny cancelled his Business plan, so his workspace warns members it turns read-only on Oct 1. Buying Business here creates your own workspace and unlocks unlimited envelopes for you.",
     tag: "Workspaces",
   },
@@ -177,10 +177,19 @@ const OTHER_BUSINESS: OtherWorkspace = {
   initials: "HL",
   color: "#d97706",
   memberCount: 5,
+  seats: 6,
+  members: [
+    { id: "k0", name: "Kenny Hartono", email: "kenny@hartonolegal.id", role: "owner" },
+    { id: "k1", name: "Frans", email: "frans.privy@gmail.com", role: "member" },
+    { id: "k2", name: "Rima Sari", email: "rima@hartonolegal.id", role: "member" },
+    { id: "k3", name: "Donny Prasetyo", email: "donny@hartonolegal.id", role: "member" },
+    { id: "k4", name: "Ardhitia W.", email: "ardhitia@hartonolegal.id", role: "member" },
+  ],
   usage: { envelopesSent: 88, templates: 12, contacts: 140 },
   documents: [
     { id: "o1", title: "Retainer Agreement · Hartono Legal", from: "Kenny Hartono", assignedAgo: "1 day ago", status: "waiting_for_you" },
     { id: "o2", title: "Client intake form · Sari", from: "Kenny Hartono", assignedAgo: "6 days ago", status: "completed" },
+    { id: "o3", title: "Consultation notes · Frans (signed)", from: "Frans", assignedAgo: "2 weeks ago", status: "completed" },
   ],
 };
 const ENTERPRISE_ACTIVE: OtherWorkspace = {
@@ -486,7 +495,7 @@ export function buildScenario(id: string): AppState {
       return {
         ...s,
         card: VISA,
-        otherWorkspaces: [{ ...OTHER_BUSINESS, endingAt: "2026-10-01T00:00:00.000Z" }, ENTERPRISE_ACTIVE],
+        otherWorkspaces: [{ ...OTHER_BUSINESS, endingAt: "2026-10-01T00:00:00.000Z", myRole: "admin", members: OTHER_BUSINESS.members!.map((m) => (m.name === "Frans" ? { ...m, role: "admin" as const } : m)) }, ENTERPRISE_ACTIVE],
         subscription: sub({ tier: "personal", interval: "monthly", currentPeriodStart: start, currentPeriodEnd: "2026-10-10T00:00:00.000Z", anchorDay: 10, renewalCount: 1, createdAt: "2026-08-10T09:00:00.000Z" }),
         usage: { envelopesSent: 47, templates: 4, contacts: 23 },
         invoices: [

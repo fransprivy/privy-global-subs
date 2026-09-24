@@ -406,7 +406,7 @@ export function PaymentDetailDrawer({ billId, close }: { billId: string; close: 
               Go to Billing
             </Link>
           </div>
-          <p className="mt-4 text-xs text-muted">Prototype: Refresh simulates the payment gateway confirming the payment. In production this arrives as a webhook.</p>
+          {s.ui.showSpecTags && <p className="mt-4 text-xs text-muted">Prototype: Refresh simulates the payment gateway confirming the payment (a webhook in production).</p>}
         </div>
       </Drawer>
     );

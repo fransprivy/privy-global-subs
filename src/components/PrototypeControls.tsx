@@ -170,7 +170,7 @@ export function PrototypeControls() {
             </div>
             <label className="mt-3 flex items-center gap-2 text-xs text-ink-2">
               <input type="checkbox" className="accent-brand" checked={s.ui.showSpecTags} onChange={(e) => api.setShowSpecTags(e.target.checked)} />
-              Show requirement tags (UX-xx, M-xx, R-xx) on the UI
+              Show prototype helpers: requirement tags (UX-xx, M-xx, R-xx), test-card hints, support panel
             </label>
             <label className="mt-2 flex items-center gap-2 text-xs text-ink-2">
               <input type="checkbox" className="accent-brand" checked={guideOpen} onChange={(e) => api.setGuideOpen(e.target.checked)} />

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { brandLabel, cardFromNumber, TEST_CARDS } from "@/lib/engine";
+import { useAppState } from "@/lib/store";
 import type { Card } from "@/lib/types";
 import { IconApple, IconBank, IconCard, IconGoogle, IconLock, IconShieldCheck } from "./Icons";
 import { Spec } from "./ui";
@@ -64,6 +65,7 @@ export function CardForm({
   compact?: boolean;
 }) {
   const [showTest, setShowTest] = useState(false);
+  const helpers = useAppState().s.ui.showSpecTags;
   const set = (k: keyof CardFormValue, v: string) => onChange({ ...value, [k]: v });
   const digits = value.number.replace(/\D/g, "");
   const known = TEST_CARDS.find((c) => c.number.replace(/\s/g, "") === digits);
@@ -102,18 +104,20 @@ export function CardForm({
           </div>
         )}
         <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
-          <IconLock size={12} /> Card details are entered in a Stripe-hosted field and never touch Privy servers. <Spec id="R-52" />
+          <IconLock size={12} /> Card details are encrypted by our payment provider and never stored by Privy. <Spec id="R-52" />
         </p>
       </div>
-      {known && (
+      {helpers && known && (
         <p className="rounded-lg bg-info-tint px-3 py-2 text-xs text-info">
-          Prototype: this test card <strong>{known.label.toLowerCase()}</strong>.
+          Test card: <strong>{known.label.toLowerCase()}</strong>.
         </p>
       )}
-      <button type="button" className="text-xs font-medium text-brand underline-offset-2 hover:underline" onClick={() => setShowTest((v) => !v)}>
-        {showTest ? "Hide test cards" : "Use a test card (prototype)"}
-      </button>
-      {showTest && (
+      {helpers && (
+        <button type="button" className="text-xs font-medium text-brand underline-offset-2 hover:underline" onClick={() => setShowTest((v) => !v)}>
+          {showTest ? "Hide test cards" : "Use a test card"}
+        </button>
+      )}
+      {helpers && showTest && (
         <div className="grid gap-1.5 sm:grid-cols-2">
           {TEST_CARDS.map((c) => (
             <button

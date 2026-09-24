@@ -529,7 +529,7 @@ export function sendEnvelope(s: AppState): AppState | null {
   const ws = workspaceView(s);
   if (ws.readOnly) return null;
   if (ws.envelopeLimit !== null && ws.usage.envelopesSent >= ws.envelopeLimit) return null;
-  const doc: Task = { id: uid("env"), title: `Envelope ${ws.usage.envelopesSent + 1} (prototype)`, from: s.user.name, assignedAgo: "just now", status: "waiting_for_others" };
+  const doc: Task = { id: uid("env"), title: `Untitled envelope ${ws.usage.envelopesSent + 1}`, from: s.user.name, assignedAgo: "just now", status: "waiting_for_others" };
   let next: AppState;
   if (ws.id === "individual") next = { ...s, usage: { ...s.usage, envelopesSent: s.usage.envelopesSent + 1 }, tasks: [doc, ...s.tasks] };
   else if (ws.id === "business") next = { ...s, workspace: { ...s.workspace, usage: { ...ws.usage, envelopesSent: ws.usage.envelopesSent + 1 }, documents: [doc, ...(s.workspace.documents ?? [])] } };
@@ -590,6 +590,97 @@ export function transferOwnership(s: AppState, memberId: string): AppState {
   next = sendEmail(next, "N-35", { workspaceName: s.workspace.name, nextDate: fmtDate(periodEnd), memberName: m.name }, `N-35:${transferred.id}`, m.email);
   next = sendEmail(next, "N-36", { workspaceName: s.workspace.name, nextDate: fmtDate(periodEnd), memberName: m.name }, `N-36:${transferred.id}`);
   return toast(next, `${m.name} now owns ${s.workspace.name}. Your card will not be charged again.`, "info");
+}
+
+/** Owner can reactivate an expired Business workspace with a new checkout (R-75). Shown as "Reactivate" wherever Business is offered. */
+export function canReactivateBusiness(s: AppState): boolean {
+  return workspaceStatus(s) === "expired";
+}
+
+export type HandoverDestination = "individual" | "business" | "uploaders";
+/** Which handover moves are possible from the active workspace (R-79). */
+export function handoverOptions(s: AppState): { destinations: HandoverDestination[]; eligible: (d: Task) => boolean } {
+  const ws = workspaceView(s);
+  if (ws.kind === "individual") {
+    return { destinations: ownsBusinessWorkspace(s) && workspaceStatus(s) === "active" ? ["business"] : [], eligible: () => true };
+  }
+  if (ws.kind === "business" && ws.role === "owner") return { destinations: ["individual", "uploaders"], eligible: () => true };
+  if (ws.kind === "business" && ws.role === "member") return { destinations: ["individual"], eligible: (d) => d.from === s.user.name };
+  return { destinations: [], eligible: () => false };
+}
+/** Move the chosen envelopes. Documents handed to other uploaders leave this account's view. */
+export function handoverSelected(s: AppState, ids: string[], dest: HandoverDestination): AppState {
+  const ws = workspaceView(s);
+  const pick = (docs: Task[]) => docs.filter((d) => ids.includes(d.id));
+  const rest = (docs: Task[]) => docs.filter((d) => !ids.includes(d.id));
+  let next: AppState = s;
+  let moved: Task[] = [];
+  let detail = "";
+  if (ws.kind === "individual" && dest === "business") {
+    moved = pick(s.tasks);
+    next = { ...s, tasks: rest(s.tasks), workspace: { ...s.workspace, documents: [...moved.map((d) => ({ ...d, id: `ho_${d.id}` })), ...(s.workspace.documents ?? [])] } };
+    detail = `From your Individual workspace to ${s.workspace.name}.`;
+  } else if (ws.kind === "business" && ws.role === "owner") {
+    const docs = s.workspace.documents ?? [];
+    moved = pick(docs);
+    if (dest === "individual") {
+      next = { ...s, tasks: [...moved.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks], workspace: { ...s.workspace, documents: rest(docs), handedOverAt: s.now } };
+      detail = `From ${s.workspace.name} to your Individual workspace.`;
+    } else {
+      const mine = moved.filter((d) => d.from === s.user.name);
+      const others = moved.filter((d) => d.from !== s.user.name);
+      const names = Array.from(new Set(others.map((d) => d.from)));
+      next = { ...s, tasks: [...mine.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks], workspace: { ...s.workspace, documents: rest(docs), handedOverAt: s.now } };
+      detail = `Each envelope went to the Individual workspace of the person who uploaded it${names.length ? `: ${names.join(", ")}` : ""}${mine.length ? `${names.length ? " and" : ""} ${mine.length} of yours to your Individual workspace` : ""}.`;
+    }
+  } else if (ws.kind === "business" && ws.role === "member") {
+    const o = (s.otherWorkspaces ?? []).find((x) => x.id === ws.id)!;
+    moved = pick(o.documents).filter((d) => d.from === s.user.name);
+    next = { ...s, tasks: [...moved.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks], otherWorkspaces: (s.otherWorkspaces ?? []).map((x) => (x.id === ws.id ? { ...x, documents: rest(x.documents) } : x)) };
+    detail = `From ${o.name} to your Individual workspace.`;
+  }
+  if (moved.length === 0) return toast(s, "Nothing to hand over.", "info");
+  next = addHistory(next, "handover", `${moved.length} envelope${moved.length === 1 ? "" : "s"} handed over`, detail);
+  return toast(next, `${moved.length} envelope${moved.length === 1 ? "" : "s"} handed over.`);
+}
+
+/** Owner deletes an expired Business workspace to start again from scratch (R-83). Documents can be handed over first. */
+export function deleteWorkspace(s: AppState, handoverFirst: boolean): AppState {
+  if (workspaceStatus(s) !== "expired") return s;
+  const docs = s.workspace.documents ?? [];
+  const name = s.workspace.name;
+  let next: AppState = {
+    ...s,
+    tasks: handoverFirst ? [...docs.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks] : s.tasks,
+    workspace: { name: "", members: s.workspace.members.filter((m) => m.role === "owner"), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true, status: "none", documents: [], usage: { envelopesSent: 0, templates: 0, contacts: 0 }, createdAt: null, expiredAt: null, handedOverAt: null },
+    activeWorkspace: "individual",
+  };
+  next = addHistory(next, "workspace_deleted", `${name} deleted`, handoverFirst && docs.length ? `${docs.length} envelope${docs.length === 1 ? "" : "s"} moved to your Individual workspace first. Buying Business again creates a new workspace.` : "Buying Business again creates a new workspace.");
+  return toast(next, `${name} was deleted.`, "info");
+}
+
+/** Owner promotes or demotes a member (R-82). */
+export function setMemberRole(s: AppState, id: string, role: "admin" | "member"): AppState {
+  const m = s.workspace.members.find((x) => x.id === id);
+  if (!m || m.role === "owner" || m.role === role) return s;
+  let next: AppState = { ...s, workspace: { ...s.workspace, members: s.workspace.members.map((x) => (x.id === id ? { ...x, role } : x)) } };
+  next = addHistory(next, "role_changed", `${m.name} is now ${role === "admin" ? "an admin" : "a member"} of ${s.workspace.name}`, role === "admin" ? "Admins can invite and remove members, change seats and manage payment methods." : "Members can send and sign only.");
+  return toast(next, `${m.name} is now ${role === "admin" ? "an admin" : "a member"}.`, "info");
+}
+/** Admin of someone else's workspace invites or removes members there. */
+export function adminInvite(s: AppState, wsId: string, name: string, email: string): AppState {
+  const o = (s.otherWorkspaces ?? []).find((x) => x.id === wsId);
+  if (!o || o.myRole !== "admin") return s;
+  const members = o.members ?? [];
+  if (o.seats && members.length >= o.seats) return toast(s, `All ${o.seats} seats are in use. Ask ${o.ownerName} to add seats.`, "warn");
+  const m: Member = { id: uid("m"), name: name.trim() || email.split("@")[0], email: email.trim(), role: "member" };
+  return toast({ ...s, otherWorkspaces: s.otherWorkspaces!.map((x) => (x.id === wsId ? { ...x, members: [...members, m], memberCount: members.length + 1 } : x)) }, `Invitation sent to ${m.email}.`);
+}
+export function adminRemove(s: AppState, wsId: string, memberId: string): AppState {
+  const o = (s.otherWorkspaces ?? []).find((x) => x.id === wsId);
+  if (!o || o.myRole !== "admin") return s;
+  const members = (o.members ?? []).filter((m) => m.id !== memberId && m.role !== "owner");
+  return toast({ ...s, otherWorkspaces: s.otherWorkspaces!.map((x) => (x.id === wsId ? { ...x, members: (x.members ?? []).filter((m) => m.id !== memberId || m.role === "owner"), memberCount: members.length + 1 } : x)) }, "Member removed.", "info");
 }
 
 /** Member leaves someone else's workspace. Their documents there stay with the workspace owner (R-80). */

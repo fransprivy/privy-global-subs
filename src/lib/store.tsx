@@ -47,6 +47,11 @@ interface StoreApi {
   sendEnvelope: () => boolean;
   useUpQuota: () => void;
   transferOwnership: (memberId: string) => void;
+  handoverSelected: (ids: string[], dest: E.HandoverDestination) => void;
+  deleteWorkspace: (handoverFirst: boolean) => void;
+  setMemberRole: (id: string, role: "admin" | "member") => void;
+  adminInvite: (wsId: string, name: string, email: string) => void;
+  adminRemove: (wsId: string, memberId: string) => void;
   dismissWelcome: () => void;
   setPrefs: (prefs: Partial<WorkspacePrefs>) => void;
   startOneTimePurchase: (input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }) => void;
@@ -186,6 +191,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       useUpQuota: () => update((s) => E.useUpQuota(s)),
       transferOwnership: (memberId) => update((s) => E.transferOwnership(s, memberId)),
+      handoverSelected: (ids, dest) => update((s) => E.handoverSelected(s, ids, dest)),
+      deleteWorkspace: (handoverFirst) => update((s) => E.deleteWorkspace(s, handoverFirst)),
+      setMemberRole: (id, role) => update((s) => E.setMemberRole(s, id, role)),
+      adminInvite: (wsId, name, email) => update((s) => E.adminInvite(s, wsId, name, email)),
+      adminRemove: (wsId, memberId) => update((s) => E.adminRemove(s, wsId, memberId)),
       dismissWelcome: () => update((s) => ({ ...s, ui: { ...s.ui, welcomeBusiness: false } })),
       setPrefs: (prefs) => update((s) => ({ ...s, prefs: { timezone: "auto", dateFormat: "dd MMM yyyy", ...(s.prefs ?? {}), ...prefs } })),
       startOneTimePurchase: (input) => update((s) => E.startOneTimePurchase(s, input)),

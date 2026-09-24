@@ -88,7 +88,7 @@ export function fmtDateTime(isoStr: string): string {
   const d = toDate(isoStr);
   const hh = String(d.getUTCHours()).padStart(2, "0");
   const mm = String(d.getUTCMinutes()).padStart(2, "0");
-  return `${fmtDate(isoStr)}, ${hh}:${mm} UTC`;
+  return `${fmtDate(isoStr)}, ${hh}:${mm}`;
 }
 
 export function fmtMoney(n: number): string {

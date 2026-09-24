@@ -24,8 +24,11 @@ export default function SettingsStub() {
   return (
     <div>
       <SettingsHeader icon={<IconSliders size={22} />} title={title} subtitle={subtitle} />
-      <div className="px-6 py-10 text-sm text-muted sm:px-10">
-        This section is outside the scope of the subscription prototype. Everything under <strong className="text-ink">Billing</strong> is fully working.
+      <div className="px-6 py-6 sm:px-10">
+        <div className="card flex flex-col items-center px-6 py-16 text-center">
+          <p className="text-[17px] font-medium text-ink">Nothing to set up yet</p>
+          <p className="mt-1 text-sm text-muted">{subtitle}</p>
+        </div>
       </div>
     </div>
   );

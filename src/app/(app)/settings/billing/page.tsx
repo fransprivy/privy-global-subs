@@ -92,6 +92,7 @@ function Billing() {
         <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle={`${ws.name} · managed by ${ws.ownerName}`} />
         <div className="space-y-8 px-6 py-6 sm:px-10">
           <MemberPlanCard ws={ws} />
+          <AdminMembers ws={ws} />
           {usage}
         </div>
       </div>
@@ -206,6 +207,50 @@ function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
   );
 }
 
+/** Admin view of someone else's Business workspace: members yes, plan no (R-82). */
+function AdminMembers({ ws }: { ws: WorkspaceView }) {
+  const { s, api } = useAppState();
+  const flows = useFlows();
+  const o = (s.otherWorkspaces ?? []).find((w) => w.id === ws.id);
+  if (!o || o.myRole !== "admin") return null;
+  const members = o.members ?? [];
+  const full = !!o.seats && members.length >= o.seats;
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-[17px] font-medium text-ink">
+          Team members <span className="ml-2 chip bg-info-tint text-info">You are an admin</span>
+        </h2>
+        <button className="btn-primary !py-2" disabled={ws.readOnly || full} onClick={() => flows.open({ type: "adminInvite", wsId: ws.id })} title={full ? `All seats are in use. Ask ${o.ownerName} to add seats.` : undefined}>
+          <IconPlus size={16} /> Invite member
+        </button>
+      </div>
+      <div className="card divide-y divide-line">
+        {members.map((m) => (
+          <div key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#eeeeee] text-sm font-semibold text-ink-2">{m.name.slice(0, 2).toUpperCase()}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-medium text-ink">
+                {m.name} {m.email === s.user.email && <span className="ml-1 text-xs font-normal text-muted">(you)</span>}
+              </p>
+              <p className="text-sm text-muted">{m.email}</p>
+            </div>
+            <span className={`chip ${m.role === "owner" ? "bg-ink text-white" : m.role === "admin" ? "bg-info-tint text-info" : "bg-[#eeeeee] text-ink-2"}`}>{m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member"}</span>
+            {m.role === "member" && (
+              <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={ws.readOnly} onClick={() => api.adminRemove(ws.id, m.id)}>
+                <IconTrash size={14} /> Remove
+              </button>
+            )}
+          </div>
+        ))}
+        <div className="px-5 py-3 text-sm text-muted">
+          {members.length} of {o.seats ?? members.length} seats in use. Seats, payment methods and the plan itself are billed to {o.ownerName}; ask them to add seats or change the plan.
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** Owner view of the Business workspace members (R-78). Seats come from the subscription; invites are limited to the seat count. */
 function TeamMembers() {
   const { s, api } = useAppState();
@@ -241,21 +286,29 @@ function TeamMembers() {
               </p>
               <p className="text-sm text-muted">{m.email}</p>
             </div>
-            <span className="chip bg-[#eeeeee] text-ink-2">{m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member"}</span>
+            <span className={`chip ${m.role === "owner" ? "bg-ink text-white" : m.role === "admin" ? "bg-info-tint text-info" : "bg-[#eeeeee] text-ink-2"}`}>{m.role === "owner" ? "Owner" : m.role === "admin" ? "Admin" : "Member"}</span>
             {m.role !== "owner" && (
-              <>
-                <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => flows.open({ type: "transfer", memberId: m.id })} title="Hand the workspace and its billing to this member">
+              <div className="flex items-center gap-1 text-xs">
+                <button className="rounded-md px-2 py-1 text-ink-2 hover:bg-page disabled:opacity-40" disabled={expired} onClick={() => api.setMemberRole(m.id, m.role === "admin" ? "member" : "admin")}>
+                  {m.role === "admin" ? "Remove admin" : "Make admin"}
+                </button>
+                <span className="text-line-2">·</span>
+                <button className="rounded-md px-2 py-1 text-ink-2 hover:bg-page disabled:opacity-40" disabled={expired} onClick={() => flows.open({ type: "transfer", memberId: m.id })} title="Hand the workspace and its billing to this member">
                   Make owner
                 </button>
-                <button className="btn-ghost !py-1.5 text-xs text-ink-2" disabled={expired} onClick={() => api.removeMember(m.id)}>
-                  <IconTrash size={14} /> Remove
+                <span className="text-line-2">·</span>
+                <button className="rounded-md px-2 py-1 text-danger hover:bg-danger-tint disabled:opacity-40" disabled={expired} onClick={() => api.removeMember(m.id)}>
+                  Remove
                 </button>
-              </>
+              </div>
             )}
           </div>
         ))}
         <div className="px-5 py-3 text-sm text-muted">
-          {members.length} of {seats} seats in use{free > 0 ? ` · ${free} free seat${free > 1 ? "s" : ""} (still billed)` : " · the next invite adds a seat"}. Removing a member frees the seat but does not change your bill until you reduce seats. "Make owner" hands the workspace and its billing to a member; your card is not charged again. <Spec id="R-81" />
+          {members.length} of {seats} seats in use{free > 0 ? ` · ${free} free seat${free > 1 ? "s" : ""}` : " · the next invite adds a seat"}. Removing a member frees the seat; reduce seats to change your bill.
+          <span className="mt-1 block">
+            Admins can invite and remove members, change seats and manage payment methods. Only you can change or cancel the plan, transfer ownership, set admins, hand over everything or delete the workspace. <Spec id="R-82" />
+          </span>
         </div>
       </div>
     </section>
@@ -345,7 +398,7 @@ function SubscriptionCard() {
     status = <StatusPill tone="danger">Expired · read-only{ended ? ` since ${fmtDate(ended)}` : ""}</StatusPill>;
     footer = (
       <span className="text-danger">
-        The Business plan ended{ended ? ` on ${fmtDate(ended)}` : ""}. Envelopes can be viewed and downloaded only. Reactivate to start a new billing period today, or hand the documents over to your Individual workspace. <Spec id="R-72" />
+        Your Business plan ended{ended ? ` on ${fmtDate(ended)}` : ""}. Envelopes can be viewed, downloaded and handed over. Reactivate to sign and send again; billing restarts from the day you reactivate. <Spec id="R-72" />
       </span>
     );
     actions.push(
@@ -356,10 +409,15 @@ function SubscriptionCard() {
     if ((s.workspace.documents ?? []).length > 0) {
       actions.push(
         <button key="handover" className="btn-secondary" onClick={() => flows.open({ type: "handover" })}>
-          <IconHandover size={16} /> Hand over documents
+          <IconHandover size={16} /> Hand over envelopes
         </button>
       );
     }
+    actions.push(
+      <button key="delete" className="btn-ghost text-danger" onClick={() => flows.open({ type: "deleteWorkspace" })}>
+        Delete workspace
+      </button>
+    );
   } else if (oneTime) {
     const pe = prepaidEnd(s)!;
     const left = daysLeftInPeriod(s) ?? 0;
@@ -393,7 +451,7 @@ function SubscriptionCard() {
   } else if (prepaid) {
     const pe = prepaidEnd(s)!;
     status = <StatusPill tone="neutral">Prepaid · until {fmtDate(pe)}</StatusPill>;
-    footer = <span className="text-ink-2">Paid until {fmtDate(pe)} (one-off purchase). No card on file. Auto-renewal is off.</span>;
+    footer = <span className="text-ink-2">Paid until {fmtDate(pe)}. Auto-renewal is off.</span>;
     actions.push(
       <button key="optin" className="btn-primary" onClick={() => flows.open({ type: "optin" })}>
         Turn on auto-renewal
@@ -694,10 +752,11 @@ function SupportPanel() {
   const { s } = useAppState();
   const [open, setOpen] = useState(false);
   const sub = s.subscription;
+  if (!s.ui.showSpecTags) return null;
   return (
     <section className="rounded-xl border border-dashed border-line-2 p-4 text-sm">
       <button className="flex w-full items-center justify-between text-left" onClick={() => setOpen((v) => !v)}>
-        <span className="font-medium text-ink">For support and engineering (prototype only): payment attempts and consent records</span>
+        <span className="font-medium text-ink">Payment attempts and consent records</span>
         <IconChevronRight size={16} className={`transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
       {open && (

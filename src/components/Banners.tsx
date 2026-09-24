@@ -29,14 +29,14 @@ export function Banners() {
             {ws.kind === "enterprise"
               ? "The Enterprise contract ended. Contact sales to renew; nothing is deleted."
               : owner
-                ? `Your Business plan ended. Reactivate to sign and send again, or hand the ${ws.documents.length} envelope${ws.documents.length === 1 ? "" : "s"} over to your Individual workspace.`
-                : `${ws.ownerName}'s Business plan ended. Ask the owner to reactivate it. Your own plan is not affected.`}
+                ? `Your Business plan ended. Reactivate to sign and send again, or hand the ${ws.documents.length} envelope${ws.documents.length === 1 ? "" : "s"} over.`
+                : `${ws.ownerName}'s Business plan ended. You can still view, download and hand over the envelopes you uploaded. Your own plan is not affected.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {owner && ws.documents.length > 0 && (
+          {ws.kind === "business" && ws.documents.some((d) => owner || d.from === s.user.name) && (
             <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "handover" })}>
-              <IconHandover size={14} /> Hand over documents
+              <IconHandover size={14} /> Hand over envelopes
             </button>
           )}
           {owner && (

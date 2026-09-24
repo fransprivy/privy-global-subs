@@ -44,6 +44,7 @@ export function CheckoutDrawer({
   const [promo, setPromo] = useState("");
   // First Business purchase creates the owned workspace (R-74). Reactivation keeps the existing name.
   const [newWorkspace] = useState(() => tier === "business" && workspaceStatus(s) === "none");
+  const [reactivating] = useState(() => tier === "business" && workspaceStatus(s) === "expired");
   const [workspaceName, setWorkspaceName] = useState(`${s.user.name}'s team`);
 
   const amount = planPrice(tier, interval, seats);
@@ -108,7 +109,7 @@ export function CheckoutDrawer({
           <span className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-success-tint text-success">
             <IconCheckCircle size={36} />
           </span>
-          <h3 className="font-display text-2xl font-semibold text-ink">You are now on {planName(tier, interval)}</h3>
+          <h3 className="font-display text-2xl font-semibold text-ink">{reactivating ? `${s.workspace.name} is active again` : `You are now on ${planName(tier, interval)}`}</h3>
           <p className="mt-2 max-w-sm text-sm text-ink-2">
             We charged {fmtMoney(amount)} to your card ending {card?.last4 ?? s.card?.last4}. Your plan runs until <strong>{end}</strong> and renews automatically. A receipt is on its way to {s.user.email}.
           </p>
@@ -136,7 +137,7 @@ export function CheckoutDrawer({
       <Drawer
         open={open}
         onClose={onClose}
-        title={titles[mode]}
+        title={reactivating ? `Reactivate ${s.workspace.name}` : titles[mode]}
         spec="M-01"
         footer={
           <div className="space-y-3">
@@ -199,7 +200,7 @@ export function CheckoutDrawer({
               </div>
             )}
             <button className="btn-primary h-12 w-full text-base" disabled={!canPay} onClick={pay}>
-              <IconShield size={18} /> {stage === "processing" ? "Processing…" : `Pay ${fmtMoney(amount)}`}
+              <IconShield size={18} /> {stage === "processing" ? "Processing…" : reactivating ? `Reactivate and pay ${fmtMoney(amount)}` : `Pay ${fmtMoney(amount)}`}
             </button>
             <p className="text-center text-[11px] text-muted">
               Your bank may ask you to confirm this payment. <Spec id="UX-14" />

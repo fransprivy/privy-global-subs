@@ -3,7 +3,7 @@ import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 
 export const metadata: Metadata = {
-  title: "Privy Sign · Global subscriptions prototype",
+  title: "Privy Sign",
   description:
     "Clickable prototype of Privy Sign's Global subscription experience: plans, checkout, renewal, upgrade, downgrade, cancel, dunning.",
 };

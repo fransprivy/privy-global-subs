@@ -25,7 +25,7 @@ export default function ChangePlanPage() {
       ? `Your plan ends on ${fmtDate(sub.currentPeriodEnd)}. Resume it from Billing to change plans.`
       : `Upgrades can start today or on ${fmtDate(sub.currentPeriodEnd)}. Downgrades take effect on ${fmtDate(sub.currentPeriodEnd)}.`
     : prepaid
-      ? `Your prepaid time runs until ${fmtDate(prepaidEnd(s)!)}. Any change starts on that date.`
+      ? `Your current plan runs until ${fmtDate(prepaidEnd(s)!)}. Any change starts on that date.`
       : "Your new plan will apply starting today.";
 
   return (
