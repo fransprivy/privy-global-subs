@@ -226,7 +226,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         subject: `You are now on Privy ${c.newPlanName}`,
         body: [
           `Your scheduled change took effect. We charged ${c.newAmount} for the new period; next renewal ${c.nextDate}.`,
-          c.isBusiness ? `Team members have been removed and workflow automations paused.` : `Your envelope allowance is now the ${c.newPlanName} allowance.`,
+          c.isBusiness ? `${c.workspaceName} is now read-only for your team: envelopes can be viewed and downloaded. Reactivate Business any time.` : `Your envelope allowance is now the ${c.newPlanName} allowance.`,
         ],
         cta: { label: "View plan settings", href: planPage },
       };
