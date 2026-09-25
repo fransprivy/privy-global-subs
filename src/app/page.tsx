@@ -5,6 +5,7 @@ import { PrivyMark } from "@/components/Logo";
 import { IconArrowRight } from "@/components/Icons";
 import { guideFor } from "@/lib/guide";
 import { SCENARIOS } from "@/lib/scenarios";
+import { buildLabel } from "@/lib/build";
 import { useStore } from "@/lib/store";
 
 const TAG_STYLE: Record<string, string> = {
@@ -90,6 +91,9 @@ export default function ScenarioPicker() {
             <p className="mt-1">Each step in the test guide names the spec items it proves (UX-xx, M-xx, R-xx, N-xx). Turn on "Spec tags" in the guide footer to see those tags on the UI itself. The Emails page renders every template with live data.</p>
           </div>
         </div>
+        <p className="mt-6 text-center font-mono text-[11px] text-muted" title="Compare with the latest commit on GitHub to confirm this is the newest deployment">
+          {buildLabel()}
+        </p>
       </div>
     </div>
   );

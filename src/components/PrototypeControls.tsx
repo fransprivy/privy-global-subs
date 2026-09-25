@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { buildLabel } from "@/lib/build";
 import { regionMeta } from "@/lib/catalog";
 import { activeSubscription, activeWorkspaceId, allWorkspaces, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
 import { addDays, daysBetween, fmtDate, startOfDayUTC } from "@/lib/format";
@@ -179,6 +180,7 @@ export function PrototypeControls() {
           </Section>
 
           <p className="mt-3 text-[11px] text-muted">Shortcut: Ctrl/Cmd + . toggles this panel. State is saved in this browser only.</p>
+          <p className="mt-1 font-mono text-[11px] text-muted">{buildLabel()}</p>
         </div>
       )}
     </>
