@@ -1,7 +1,7 @@
 "use client";
 
 import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
-import { activeSubscription, classifyChange, currentTier, isPrepaidUser, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
+import { activeSubscription, classifyChange, currentTier, isPrepaidUser, isPromoUser, promoInfo, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
@@ -19,20 +19,27 @@ export function useCta() {
   const prepaid = isPrepaidUser(s);
   const ws = workspaceView(s);
   const ownsBusiness = tier === "business";
+  const promo = isPromoUser(s) ? promoInfo(s) : null;
 
   function ctaFor(target: Tier, interval: Interval): Cta {
     if (target === "enterprise") return { label: "Talk to sales", kind: "sales" };
     // Workspace-aware labels (R-73, R-75). Members of other workspaces never see plan CTAs (the page shows a note instead).
     if (ws.kind === "individual" && ownsBusiness) {
-      if (target === "personal") return { label: "Included with Business", kind: "disabled" };
+      if (target === "personal") return { label: "Included with Pro", kind: "disabled" };
       if (target === "business" && !(sub?.scheduledChange)) return { label: `Your plan · in ${s.workspace.name}`, kind: "switch" };
     }
-    // An expired Business workspace is always reactivated, never "upgraded to" again, from any workspace (R-75).
+    // An expired Pro workspace is always reactivated, never "upgraded to" again, from any workspace (R-75).
     if (target === "business" && workspaceStatus(s) === "expired" && !(sub?.scheduledChange?.tier === "business")) {
-      return { label: "Reactivate Business", kind: "action" };
+      return { label: "Reactivate Pro", kind: "action" };
     }
     if (ws.kind === "business" && target === "personal" && !sub && workspaceStatus(s) === "expired") {
       return { label: "Buy in your Individual workspace", kind: "switch" };
+    }
+    // Free voucher period: every paid plan can be started (today or when the free period ends); Free comes back by itself.
+    if (promo) {
+      if (target === "free") return { label: `Free again on ${fmtDate(promo.until)}`, kind: "disabled" };
+      if (ws.kind === "individual" && promo.tier === "business" && target === "personal") return { label: "Included with Pro", kind: "disabled" };
+      return { label: target === promo.tier ? `Keep ${TIER_LABEL[target as PaidTier]}` : `Switch to ${TIER_LABEL[target as PaidTier]}`, kind: "action" };
     }
     if (target === "free") {
       if (tier === "free") return { label: "Your current plan", kind: "current" };
@@ -112,7 +119,7 @@ export function PlanCards({ interval, compact }: { interval: Interval; compact?:
       <div className="card flex flex-col items-start gap-3 p-6 text-sm text-ink-2">
         <p className="text-[17px] font-medium text-ink">Plans are chosen per workspace</p>
         <p>
-          <strong className="text-ink">{ws.name}</strong> is {ws.kind === "enterprise" ? "an Enterprise workspace under contract with" : "a Business workspace owned by"} {ws.ownerName}; its plan is not yours to change. Your own plans live in your Individual workspace. <Spec id="R-71" />
+          <strong className="text-ink">{ws.name}</strong> is {ws.kind === "enterprise" ? "an Enterprise workspace under contract with" : "a Pro workspace owned by"} {ws.ownerName}; its plan is not yours to change. Your own plans live in your Individual workspace. <Spec id="R-71" />
         </p>
         <button className="btn-primary" onClick={() => api.switchWorkspace("individual")}>
           Go to my Individual workspace
@@ -271,7 +278,7 @@ function CatalogNote() {
   const m = regionMeta(regionOf(s));
   return (
     <p className="mt-3 text-center text-xs text-muted">
-      Prices in {m.currency}, {m.taxNote}.{s.ui.showSpecTags && (m.market === "indonesia" ? " Personal and Business are the same product as in every other region." : " Plan facts follow privyid.com/pricing.")} <Spec id="catalog" />
+      Prices in {m.currency}, {m.taxNote}.{s.ui.showSpecTags && (m.market === "indonesia" ? " Personal and Pro are the same product as in every other region." : " Plan facts follow privyid.com/pricing.")} <Spec id="catalog" />
     </p>
   );
 }

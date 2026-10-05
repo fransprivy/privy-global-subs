@@ -32,7 +32,7 @@ export default function EnvelopesPage() {
         <div>
           <h1 className="font-display text-[26px] font-semibold text-ink">Envelopes</h1>
           <p className="mt-1 text-sm text-muted">
-            {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}
+            {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Pro" : "Enterprise"}
             {ws.envelopeLimit === null ? "" : ` · ${Math.max(0, ws.envelopeLimit - ws.usage.envelopesSent)} of ${ws.envelopeLimit} envelopes left this month`}
           </p>
         </div>
@@ -64,8 +64,8 @@ export default function EnvelopesPage() {
               {ws.kind === "enterprise"
                 ? "The Enterprise contract has ended. You can view and download envelopes."
                 : ws.role === "owner"
-                  ? "Everyone can still view, download and hand over envelopes. Reactivate Business to sign and send again."
-                  : `${ws.ownerName}'s Business plan has ended. You can view, download and hand over the envelopes you uploaded.`}
+                  ? "Everyone can still view, download and hand over envelopes. Reactivate Pro to sign and send again."
+                  : `${ws.ownerName}'s Pro plan has ended. You can view, download and hand over the envelopes you uploaded.`}
             </p>
           </div>
         </div>

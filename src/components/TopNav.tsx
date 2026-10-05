@@ -22,9 +22,9 @@ export function TopNav() {
   const ws = workspaceView(s);
   const limit = ws.envelopeLimit;
   const left = limit === null ? null : Math.max(0, limit - ws.usage.envelopesSent);
-  // CTA per workspace (R-77): Individual Free/Personal → Upgrade; owner perk → Included with Business; owned Business → Manage / Reactivate; member → none.
+  // CTA per workspace (R-77): Individual Free/Personal → Upgrade; owner perk → Included with Pro; owned Pro → Manage / Reactivate; member → none.
   // "Upgrade plan" only when there is something to upgrade: Free, or a Personal plan with no sends left (UX-27).
-  // Owned Business: Manage / Reactivate. Members and the owner-perk Individual workspace get no CTA.
+  // Owned Pro: Manage / Reactivate. Members and the owner-perk Individual workspace get no CTA.
   const plan = individualPlan(s);
   const cta =
     ws.kind === "individual"

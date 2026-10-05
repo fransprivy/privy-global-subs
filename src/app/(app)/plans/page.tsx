@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useFlows } from "@/components/flows";
 import { IconMail } from "@/components/Icons";
 import { CompareTable, PlanCards } from "@/components/PlanCards";
 import { Spec, Toggle } from "@/components/ui";
@@ -12,6 +13,7 @@ import type { Interval } from "@/lib/types";
 
 export default function PlansPage() {
   const { s } = useAppState();
+  const flows = useFlows();
   const [interval, setInterval] = useState<Interval>(currentInterval(s) ?? "monthly");
   const sub = activeSubscription(s);
 
@@ -33,9 +35,9 @@ export default function PlansPage() {
           </div>
           <p className="mt-4 flex items-center gap-1.5 text-xs text-ink-2">
             <IconMail size={14} /> Have a voucher code?{" "}
-            <Link href="#" className="font-medium text-brand">
+            <button type="button" className="font-medium text-brand underline-offset-2 hover:underline" onClick={() => flows.open({ type: "voucher" })}>
               Redeem it here
-            </Link>
+            </button>
           </p>
           {sub && (
             <p className="text-xs text-muted">

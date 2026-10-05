@@ -85,7 +85,7 @@ export function WorkspaceMenu() {
             </Link>
           </div>
           <p className="border-t border-line px-5 py-2 text-[11px] text-muted">
-            Your plan follows you: only a Business workspace you own changes your Individual plan. <Spec id="R-71" />
+            Your plan follows you: only a Pro workspace you own changes your Individual plan. <Spec id="R-71" />
           </p>
         </div>
       )}
@@ -100,7 +100,7 @@ function WorkspaceRow({ w, current, onClick }: { w: WorkspaceView; current?: boo
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[16px] font-medium text-ink">{w.name}</span>
         <span className="block text-sm text-muted">
-          {w.kind === "individual" ? "Individual" : w.kind === "business" ? "Business" : "Enterprise"}
+          {w.kind === "individual" ? "Individual" : w.kind === "business" ? "Pro" : "Enterprise"}
           {w.status === "expired" && <span className="ml-2 rounded bg-danger-tint px-1.5 py-0.5 text-[11px] font-medium text-danger">Expired</span>}
           {w.role === "member" && w.status !== "expired" && <span className="ml-2 text-[12px] text-muted">· member</span>}
         </span>

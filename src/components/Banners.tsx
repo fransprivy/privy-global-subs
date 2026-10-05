@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, openBill, planName, planPrice, prepaidEnd, workspaceView } from "@/lib/engine";
+import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, isPromoUser, openBill, planName, planPrice, prepaidEnd, workspaceView } from "@/lib/engine";
 import { daysBetween, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import { useFlows } from "./flows";
@@ -29,8 +29,8 @@ export function Banners() {
             {ws.kind === "enterprise"
               ? "The Enterprise contract ended. Contact sales to renew; nothing is deleted."
               : owner
-                ? `Your Business plan ended. Reactivate to sign and send again, or hand the ${ws.documents.length} envelope${ws.documents.length === 1 ? "" : "s"} over.`
-                : `${ws.ownerName}'s Business plan ended. You can still view, download and hand over the envelopes you uploaded. Your own plan is not affected.`}
+                ? `Your Pro plan ended. Reactivate to sign and send again, or hand the ${ws.documents.length} envelope${ws.documents.length === 1 ? "" : "s"} over.`
+                : `${ws.ownerName}'s Pro plan ended. You can still view, download and hand over the envelopes you uploaded. Your own plan is not affected.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -41,7 +41,7 @@ export function Banners() {
           )}
           {owner && (
             <Link href="/settings/billing" className="btn-primary !py-1.5 text-xs">
-              Reactivate Business
+              Reactivate Pro
             </Link>
           )}
         </div>
@@ -166,7 +166,7 @@ export function Banners() {
           <p className="font-semibold">
             {other.paymentPending
               ? `${other.ownerName} is the new owner of ${other.name} and has not set up payment yet.`
-              : `${other.ownerName}'s Business plan for ${other.name} ends on ${fmtDate(other.endingAt)}.`}
+              : `${other.ownerName}'s Pro plan for ${other.name} ends on ${fmtDate(other.endingAt)}.`}
           </p>
           <p className="text-xs opacity-80">
             {other.paymentPending
@@ -242,7 +242,21 @@ export function Banners() {
     );
   }
 
-  if (isPrepaidUser(s) && !isOneTimeUser(s) && !s.optInDismissed) {
+  if (!sub && !s.prepaid && s.history[0]?.type === "promo_ended") {
+    items.push(
+      <Banner key="b11" tone="neutral" icon={<IconInfo size={20} />} spec="B-11">
+        <div className="flex-1">
+          <p className="font-semibold">Your free period has ended. You are back on the Free plan.</p>
+          <p className="text-xs opacity-80">Nothing was charged and your documents are kept. Subscribe any time to get your plan back.</p>
+        </div>
+        <Link href="/plans" className="btn-primary !py-1.5 text-xs">
+          See plans
+        </Link>
+      </Banner>
+    );
+  }
+
+  if (isPrepaidUser(s) && !isOneTimeUser(s) && !isPromoUser(s) && !s.optInDismissed) {
     const pe = prepaidEnd(s)!;
     items.push(
       <Banner key="b03" tone="neutral" icon={<IconInfo size={20} />} spec="B-03">

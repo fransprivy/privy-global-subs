@@ -13,6 +13,8 @@ import {
   currentSeats,
   downgradeLosses,
   handoverOptions,
+  isPromoUser,
+  promoInfo,
   type HandoverDestination,
   individualPlan,
   quotaResetDate,
@@ -30,6 +32,7 @@ import {
   prepaidEnd,
 } from "@/lib/engine";
 import { addDays, daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
+import type { PromoInfo } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
 import { CheckoutDrawer, type CheckoutMode } from "./CheckoutDrawer";
@@ -52,6 +55,7 @@ export type Flow =
   | { type: "invite" }
   | { type: "leave"; id: string }
   | { type: "paywall" }
+  | { type: "voucher" }
   | { type: "upload" }
   | { type: "transfer"; memberId?: string }
   | { type: "authenticate" }
@@ -113,6 +117,8 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <LeaveWorkspaceModal close={close} id={flow.id} />;
     case "paywall":
       return <PaywallModal close={close} />;
+    case "voucher":
+      return <VoucherModal close={close} />;
     case "upload":
       return <UploadDocumentScreen close={close} />;
     case "transfer":
@@ -150,6 +156,16 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
 
   const onDone = useCallback(() => close(), [close]);
 
+  // Free voucher period: the user chooses between starting today (free days forfeited) and starting when it ends.
+  const [promo] = useState(() => (isPromoUser(s) ? promoInfo(s) : null));
+  const [promoChoice, setPromoChoice] = useState<"now" | "later" | null>(null);
+  if (promo && promoChoice === null) {
+    return <PromoPurchaseModal promo={promo} tier={tier} interval={interval} seats={seats} close={close} onPick={setPromoChoice} />;
+  }
+  if (promo && promoChoice === "later") {
+    return <OptInModal close={close} tier={tier} interval={interval} promo />;
+  }
+
   const needsPurchaseChoice = (indonesia || oneTimeUser) && !sub && purchase === null;
   if (needsPurchaseChoice) {
     return <PurchaseTypeModal tier={tier} interval={interval} seats={seats} close={close} onPick={setPurchase} />;
@@ -166,8 +182,11 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
     return <OneTimeCheckoutDrawer tier={tier} interval={interval} seats={seats} close={close} onPaymentCreated={() => setOneTimeStage("detail")} />;
   }
   // One-time (Indonesia) user choosing auto-renewal, or a migrated prepaid user: subscription starts when prepaid time ends (R-43, R-65).
-  if (prepaid || oneTimeUser) {
+  if ((prepaid && !promo) || oneTimeUser) {
     return <OptInModal close={close} tier={tier} interval={interval} fromUpgrade />;
+  }
+  if (promo) {
+    return <CheckoutDrawer open onClose={close} mode="subscribe" tier={tier} interval={interval} seats={seats} onDone={onDone} />;
   }
 
   if (direction === "same") {
@@ -275,7 +294,7 @@ function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onS
         <Primary onClick={onNow}>Upgrade now and pay {fmtMoney(amount)}</Primary>
       )}
       <p className="text-center text-xs text-muted">
-        Business starts today. Your remaining {remaining} days of {planName(sub.tier, sub.interval)} are forfeited.
+        Pro starts today. Your remaining {remaining} days of {planName(sub.tier, sub.interval)} are forfeited.
       </p>
     </div>
   );
@@ -746,7 +765,7 @@ function RemoveCardModal({ close, id }: { close: () => void; id: string }) {
   );
 }
 
-/* Business seats: add now (prorated to the same end date), remove at period end */
+/* Pro seats: add now (prorated to the same end date), remove at period end */
 function SeatsModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const sub = activeSubscription(s);
@@ -856,7 +875,7 @@ function SeatsModal({ close }: { close: () => void }) {
                 <p className="mt-2 font-medium text-ink">
                   Next renewal, {fmtDate(sub.currentPeriodEnd)}: {fmtMoney(p.nextRenewalAmount)} per {intervalWord(sub.interval)} for {target} seats
                 </p>
-                <p className="mt-1 text-xs text-muted">One Business subscription has one end date; added seats never start a separate billing cycle.</p>
+                <p className="mt-1 text-xs text-muted">One Pro subscription has one end date; added seats never start a separate billing cycle.</p>
               </div>
               {card ? (
                 <p className="text-xs text-ink-2">
@@ -932,21 +951,25 @@ function AuthenticateFlow({ close }: { close: () => void }) {
 }
 
 /* Migration opt-in (UX-24, R-42). Also the only self-serve upgrade path for prepaid users (R-43). */
-function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: { close: () => void; tier?: PaidTier; interval?: Interval; fromUpgrade?: boolean }) {
+function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade, promo }: { close: () => void; tier?: PaidTier; interval?: Interval; fromUpgrade?: boolean; promo?: boolean }) {
   const { s, api } = useAppState();
-  const pe = prepaidEnd(s)!;
-  const tier = tierIn ?? s.prepaid!.tier;
-  const [interval, setInterval] = useState<Interval>(intervalIn ?? "annual");
+  // Frozen at mount: the prepaid record is cleared once the subscription is created.
+  const [pe] = useState(() => prepaidEnd(s)!);
+  const [prepaidTier] = useState(() => s.prepaid!.tier);
+  const [periodCount] = useState(() => s.prepaid!.periods.length);
+  const tier = tierIn ?? prepaidTier;
+  const [interval, setInterval] = useState<Interval>(intervalIn ?? (promo ? "monthly" : "annual"));
   const [seats, setSeats] = useState(1);
   const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
   const [consent, setConsent] = useState(false);
   const [stage, setStage] = useState<"form" | "3ds" | "done">("form");
   const amount = planPrice(tier, interval, seats);
   const text = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(interval)} starting ${fmtDate(pe)} until I cancel. I can cancel any time before then and nothing will be charged.`;
-  const upgrading = tier !== s.prepaid!.tier;
+  const upgrading = tier !== prepaidTier;
 
   function finish(card: Card) {
-    api.optIn(card, text, interval, tier, seats);
+    if (promo) api.subscribeAfterPromo(card, text, tier, interval, seats);
+    else api.optIn(card, text, interval, tier, seats);
     setStage("done");
   }
   function submit() {
@@ -957,11 +980,11 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
 
   if (stage === "done") {
     return (
-      <Modal open onClose={close} title="Auto-renewal is on" footer={<button className="btn-primary" onClick={close}>Done</button>}>
+      <Modal open onClose={close} title={promo ? "You are all set" : "Auto-renewal is on"} footer={<button className="btn-primary" onClick={close}>Done</button>}>
         <div className="flex flex-col items-center py-4 text-center">
           <span className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-success-tint text-success"><IconCheckCircle size={32} /></span>
           <p>
-            Your current plan runs until <strong className="text-ink">{fmtDate(pe)}</strong>. On that date we charge {fmtMoney(amount)} for {planName(tier, interval)} and your plan continues without interruption.
+            Your {promo ? "free period" : "current plan"} runs until <strong className="text-ink">{fmtDate(pe)}</strong>. On that date we charge {fmtMoney(amount)} for {planName(tier, interval)} and your plan continues without interruption.
           </p>
           <p className="mt-2 text-xs text-muted">Nothing was charged today. Cancel any time before {fmtDate(pe)} from Plan settings.</p>
         </div>
@@ -974,8 +997,8 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
       <Modal
         open
         onClose={close}
-        title={upgrading ? `Upgrade to ${TIER_LABEL[tier]} when your current plan ends` : "Turn on auto-renewal"}
-        spec={upgrading ? "R-43" : "UX-24"}
+        title={promo ? `Start ${TIER_LABEL[tier]} when your free period ends` : upgrading ? `Upgrade to ${TIER_LABEL[tier]} when your current plan ends` : "Turn on auto-renewal"}
+        spec={promo ? "M-21" : upgrading ? "R-43" : "UX-24"}
         width="max-w-xl"
         footer={
           <>
@@ -983,20 +1006,28 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
               Not now
             </button>
             <button className="btn-primary" disabled={!cardFormValid(form) || !consent} onClick={submit}>
-              {upgrading ? `Schedule upgrade for ${fmtDate(pe)}` : "Turn on auto-renewal"}
+              {promo ? `Start on ${fmtDate(pe)}` : upgrading ? `Schedule upgrade for ${fmtDate(pe)}` : "Turn on auto-renewal"}
             </button>
           </>
         }
       >
         <div className="space-y-4">
-          {upgrading && fromUpgrade && (
+          {upgrading && fromUpgrade && !promo && (
             <p className="flex items-start gap-2 rounded-lg bg-info-tint px-3 py-2 text-xs text-info">
               <IconInfo size={16} className="mt-0.5 shrink-0" />
-              You bought {s.prepaid!.periods.length} prepaid period{s.prepaid!.periods.length > 1 ? "s" : ""} under the old model, so upgrading now would forfeit all of them. Self-serve offers the scheduled option only; contact helpdesk@privy.id if you need Business sooner.
+              You bought {periodCount} prepaid period{periodCount > 1 ? "s" : ""} under the old model, so upgrading now would forfeit all of them. Self-serve offers the scheduled option only; contact helpdesk@privy.id if you need Pro sooner.
             </p>
           )}
           <p>
-            Your prepaid {planName(s.prepaid!.tier)} plan is paid until <strong className="text-ink">{fmtDate(pe)}</strong>. Save a card now and we charge {fmtMoney(amount)} for {planName(tier, interval)} on that date, not before.
+            {promo ? (
+              <>
+                Your free {planName(prepaidTier)} runs until <strong className="text-ink">{fmtDate(pe)}</strong>. Save a card now and we charge {fmtMoney(amount)} for {planName(tier, interval)} on that date, not before. You keep every free day.
+              </>
+            ) : (
+              <>
+                Your prepaid {planName(prepaidTier)} plan is paid until <strong className="text-ink">{fmtDate(pe)}</strong>. Save a card now and we charge {fmtMoney(amount)} for {planName(tier, interval)} on that date, not before.
+              </>
+            )}
           </p>
           <div className="grid grid-cols-2 gap-2">
             {(["monthly", "annual"] as Interval[]).map((iv) => (
@@ -1030,7 +1061,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade }: 
 
 /**
  * Handover (R-79). Moves envelopes between workspaces:
- * Individual → own Business; own Business → Individual or to each uploader; member workspace → own Individual (own uploads only).
+ * Individual → own Pro; own Pro → Individual or to each uploader; member workspace → own Individual (own uploads only).
  */
 function HandoverModal({ close, ids }: { close: () => void; ids?: string[] }) {
   const { s, api } = useAppState();
@@ -1041,7 +1072,7 @@ function HandoverModal({ close, ids }: { close: () => void; ids?: string[] }) {
   const [done, setDone] = useState(false);
   const uploaders = Array.from(new Set(docs.map((d) => d.from)));
   const destLabel = (d: HandoverDestination) =>
-    d === "business" ? `${s.workspace.name} (Business)` : d === "individual" ? `${s.user.name} (Individual)` : "Each uploader's Individual workspace";
+    d === "business" ? `${s.workspace.name} (Pro)` : d === "individual" ? `${s.user.name} (Individual)` : "Each uploader's Individual workspace";
   return (
     <Modal
       open
@@ -1090,7 +1121,7 @@ function HandoverModal({ close, ids }: { close: () => void; ids?: string[] }) {
                         ? `${uploaders.length} uploader${uploaders.length === 1 ? "" : "s"}: ${uploaders.join(", ")}`
                         : d === "business"
                           ? "Your team can see and work on them there."
-                          : "They stay with you whatever happens to the Business plan."}
+                          : "They stay with you whatever happens to the Pro plan."}
                     </span>
                   </span>
                   <Radio on={dest === d} />
@@ -1118,7 +1149,7 @@ function HandoverModal({ close, ids }: { close: () => void; ids?: string[] }) {
   );
 }
 
-/** M-19: delete an expired Business workspace so a new one can be created later (R-83). */
+/** M-19: delete an expired Pro workspace so a new one can be created later (R-83). */
 function DeleteWorkspaceModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const router = useRouter();
@@ -1153,7 +1184,7 @@ function DeleteWorkspaceModal({ close }: { close: () => void }) {
     >
       <div className="space-y-3 text-sm text-ink-2">
         <p>
-          The workspace, its {s.workspace.members.length - 1} member{s.workspace.members.length === 2 ? "" : "s"} and its settings are removed. You can create a new Business workspace from scratch the next time you buy Business.
+          The workspace, its {s.workspace.members.length - 1} member{s.workspace.members.length === 2 ? "" : "s"} and its settings are removed. You can create a new Pro workspace from scratch the next time you buy Pro.
         </p>
         {docs > 0 && (
           <Checkbox checked={handover} onChange={setHandover} id="delete-handover">
@@ -1170,7 +1201,7 @@ function DeleteWorkspaceModal({ close }: { close: () => void }) {
   );
 }
 
-/** R-78: invite a member into the owned Business workspace. When every seat is taken, one seat is added and paid (prorated) in the same flow (UX-29). */
+/** R-78: invite a member into the owned Pro workspace. When every seat is taken, one seat is added and paid (prorated) in the same flow (UX-29). */
 function InviteModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const [name, setName] = useState("");
@@ -1250,7 +1281,7 @@ function InviteModal({ close }: { close: () => void }) {
                 <strong className="text-ink">{fmtMoney(preview.nextRenewalAmount)}</strong>
               </div>
               <p className="text-xs text-muted">
-                Charged to {s.card ? `card ending ${s.card.last4}` : "your card"}. Same renewal date as today; one Business subscription keeps one end date.
+                Charged to {s.card ? `card ending ${s.card.last4}` : "your card"}. Same renewal date as today; one Pro subscription keeps one end date.
               </p>
             </div>
             <div className="mt-3">
@@ -1263,7 +1294,7 @@ function InviteModal({ close }: { close: () => void }) {
         {full && !canBuySeat && (
           <p className="text-xs text-danger">
             All seats are in use.{" "}
-            {sub ? "Add a card in Payment methods to buy a seat." : "Seats on a one-time period are fixed; buy the next period with more seats, or remove a member first."}
+            {sub ? "Add a card in Payment methods to buy a seat." : isPromoUser(s) ? "Your free Pro period includes 1 seat. Subscribe to Pro to add seats and invite your team." : "Seats on a one-time period are fixed; buy the next period with more seats, or remove a member first."}
           </p>
         )}
       </div>
@@ -1307,7 +1338,7 @@ function UploadDocumentScreen({ close }: { close: () => void }) {
             <div>
               <p className="text-[11px] text-muted">Sending as</p>
               <p className="text-sm font-semibold leading-tight text-ink">{ws.name}</p>
-              <p className="text-[11px] text-muted">{ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}</p>
+              <p className="text-[11px] text-muted">{ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Pro" : "Enterprise"}</p>
             </div>
           </div>
           <button className="rounded-md p-2 text-ink-2 hover:bg-page" onClick={close} aria-label="Close upload">
@@ -1365,6 +1396,165 @@ function IconCloseX() {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <path d="M6 6l12 12M18 6 6 18" />
     </svg>
+  );
+}
+
+/** M-20: voucher code entry, mirrored from production ("Kode voucher"). Runs the guardrails (G1 to G12). */
+function VoucherModal({ close }: { close: () => void }) {
+  const { s, api } = useAppState();
+  const [code, setCode] = useState("");
+  const [stage, setStage] = useState<"form" | "verify" | "done">("form");
+  const [error, setError] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [granted, setGranted] = useState<{ tier: PaidTier; months: number; endsAt: string; repeat?: boolean } | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
+  function claim() {
+    if (!code.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    setTimeout(() => {
+      const r = api.redeemVoucher(code);
+      setBusy(false);
+      if (r.ok) {
+        setGranted({ tier: r.tier!, months: r.months!, endsAt: r.endsAt!, repeat: r.repeat });
+        setStage("done");
+      } else if (r.reason === "EMAIL_UNVERIFIED") {
+        setStage("verify");
+      } else {
+        setError(r.message);
+      }
+    }, 350);
+  }
+  function verify() {
+    api.setEmailVerified(true);
+    setStage("form");
+    setOtp("");
+    // Continue the same claim; the code was not consumed while waiting.
+    setTimeout(claim, 50);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div className="animate-fade relative w-full max-w-[440px] rounded-t-2xl bg-white px-7 pb-7 pt-8 shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true" aria-label="Voucher code">
+        <button className="absolute right-4 top-4 rounded-md p-1 text-muted hover:bg-page hover:text-ink" onClick={close} aria-label="Close">
+          <IconCloseX />
+        </button>
+        <Spec id="M-20" className="absolute left-4 top-4" />
+        {stage === "form" && (
+          <div className="text-center">
+            <h2 className="font-display text-[21px] font-semibold text-ink">Voucher code</h2>
+            <p className="mx-auto mt-1 max-w-[320px] text-sm text-ink-2">Enter your code and we will add what it contains to your account.</p>
+            <input
+              className={`input mt-5 h-12 text-center text-[15px] uppercase tracking-wide placeholder:normal-case placeholder:tracking-normal ${error ? "!border-danger" : ""}`}
+              placeholder="Enter your voucher code"
+              value={code}
+              autoFocus
+              onChange={(e) => {
+                setCode(e.target.value);
+                setError(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && claim()}
+              aria-label="Voucher code"
+              aria-invalid={!!error}
+            />
+            {error && (
+              <p className="mt-2 text-left text-sm text-danger" role="alert">
+                {error}
+              </p>
+            )}
+            <button className="btn-primary mt-4 h-12 w-full text-base" disabled={!code.trim() || busy} onClick={claim}>
+              {busy ? "Checking…" : "Claim"}
+            </button>
+            <p className="mt-3 text-[11px] text-muted">One voucher per promotion. Vouchers are for accounts on the Free plan and cannot be combined.</p>
+          </div>
+        )}
+        {stage === "verify" && (
+          <div className="text-center">
+            <h2 className="font-display text-[21px] font-semibold text-ink">Verify your email first</h2>
+            <p className="mx-auto mt-1 max-w-[340px] text-sm text-ink-2">
+              We sent a 6-digit code to <strong className="text-ink">{s.user.maskedEmail}</strong>. Your voucher is kept and is not used up while you verify. <Spec id="G10" />
+            </p>
+            <input className="input mt-5 h-12 text-center font-mono text-lg tracking-[0.4em]" inputMode="numeric" maxLength={6} placeholder="••••••" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} aria-label="Verification code" autoFocus />
+            {s.ui.showSpecTags && <p className="mt-2 text-xs text-info">Prototype: any 6 digits work.</p>}
+            <button className="btn-primary mt-4 h-12 w-full text-base" disabled={otp.length !== 6} onClick={verify}>
+              Verify and claim
+            </button>
+            <button className="mt-2 text-xs text-muted hover:text-ink" onClick={() => setStage("form")}>
+              Back
+            </button>
+          </div>
+        )}
+        {stage === "done" && granted && (
+          <div className="text-center">
+            <span className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-success-tint text-success">
+              <IconCheckCircle size={32} />
+            </span>
+            <h2 className="font-display text-[21px] font-semibold text-ink">{granted.repeat ? "Already claimed" : `${TIER_LABEL[granted.tier]} is yours for ${granted.months} months`}</h2>
+            <p className="mx-auto mt-2 max-w-[340px] text-sm text-ink-2">
+              Free until <strong className="text-ink">{fmtDate(granted.endsAt)}</strong>. No card needed and nothing will be charged. On that date your account returns to Free by itself, with your documents kept.
+            </p>
+            {granted.tier === "business" && <p className="mx-auto mt-2 max-w-[340px] text-xs text-muted">Your Pro workspace is ready with 1 seat. Switch workspaces from the avatar menu.</p>}
+            <button className="btn-primary mt-5 h-12 w-full text-base" onClick={close}>
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** M-21: buying a plan while a free voucher period is running. The user picks when the paid plan starts. */
+function PromoPurchaseModal({ promo, tier, interval, seats, close, onPick }: { promo: PromoInfo; tier: PaidTier; interval: Interval; seats: number; close: () => void; onPick: (c: "now" | "later") => void }) {
+  const amount = planPrice(tier, interval, seats);
+  const per = intervalWord(interval);
+  return (
+    <Modal open onClose={close} title={`Start ${planName(tier, interval)}`} spec="M-21" width="max-w-2xl">
+      <div className="space-y-4">
+        <p className="text-sm text-ink-2">
+          You have {TIER_LABEL[promo.tier]} free until <strong className="text-ink">{fmtDate(promo.until)}</strong> ({promo.daysLeft} day{promo.daysLeft === 1 ? "" : "s"} left). When should your paid plan start?
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-ink p-4 text-sm">
+            <p className="flex items-center justify-between font-semibold text-ink">
+              When my free period ends <span className="chip bg-success-tint text-success">Recommended</span>
+            </p>
+            <ul className="mt-2 space-y-1 text-ink-2">
+              <li>Today: nothing charged</li>
+              <li>
+                {planName(tier, interval)} starts {fmtDate(promo.until)}, {fmtMoney(amount)} per {per} from then
+              </li>
+              <li className="text-success">You use every free day</li>
+              <li>Cancel any time before {fmtDate(promo.until)} and nothing is charged</li>
+            </ul>
+          </div>
+          <div className="rounded-xl border border-line-2 p-4 text-sm">
+            <p className="font-semibold text-ink">Today</p>
+            <ul className="mt-2 space-y-1 text-ink-2">
+              <li>Today: charged {fmtMoney(amount)}</li>
+              <li>{planName(tier, interval)} starts now and renews every {per}</li>
+              <li className="text-danger">
+                Your {promo.daysLeft} remaining free day{promo.daysLeft === 1 ? "" : "s"} end today and are not credited
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div className="space-y-2 pt-1">
+          <button className="btn-primary h-12 w-full text-base" onClick={() => onPick("later")}>
+            Start on {fmtDate(promo.until)} <IconArrowRight size={18} />
+          </button>
+          <button className="btn-secondary h-12 w-full text-base" onClick={() => onPick("now")}>
+            Start today and pay {fmtMoney(amount)}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1451,7 +1641,7 @@ function PaywallModal({ close }: { close: () => void }) {
             <button type="button" onClick={() => upgrade("business")} className="flex w-full items-center justify-between rounded-xl border border-maroon bg-brand-tint/20 px-4 py-3 hover:bg-brand-tint/40">
               <span>
                 <span className="flex items-center gap-2 text-[15px] font-medium text-ink">
-                  Business <span className="chip bg-maroon text-white">Unlimited</span>
+                  Pro <span className="chip bg-maroon text-white">Unlimited</span>
                 </span>
                 <span className="block text-xs text-muted">Unlimited envelopes + a team workspace · {businessPrice}/seat/month · {region.taxNote}</span>
               </span>
@@ -1473,7 +1663,7 @@ function PaywallModal({ close }: { close: () => void }) {
   );
 }
 
-/** M-18: transfer ownership of the owned Business workspace to a member (R-81). */
+/** M-18: transfer ownership of the owned Pro workspace to a member (R-81). */
 function TransferOwnershipModal({ close, memberId }: { close: () => void; memberId?: string }) {
   const { s, api } = useAppState();
   const router = useRouter();
@@ -1602,7 +1792,7 @@ function AdminInviteModal({ close, wsId }: { close: () => void; wsId: string }) 
   );
 }
 
-/** M-16: member leaves someone else's Business or Enterprise workspace (R-80). */
+/** M-16: member leaves someone else's Pro or Enterprise workspace (R-80). */
 function LeaveWorkspaceModal({ close, id }: { close: () => void; id: string }) {
   const { s, api } = useAppState();
   const router = useRouter();
@@ -1656,10 +1846,10 @@ function LeaveWorkspaceModal({ close, id }: { close: () => void; id: string }) {
 
 function individualPlanLabel(s: ReturnType<typeof useAppState>["s"]): string {
   const p = individualPlan(s);
-  return p === "free" ? "Free" : p === "personal" ? "Personal" : "Personal, included with Business";
+  return p === "free" ? "Free" : p === "personal" ? "Personal" : "Personal, included with Pro";
 }
 
-/** M-15: shown once after the Business workspace is created. */
+/** M-15: shown once after the Pro workspace is created. */
 export function WelcomeBusinessModal() {
   const { s, api } = useAppState();
   const router = useRouter();
@@ -1696,18 +1886,18 @@ export function WelcomeBusinessModal() {
       }
     >
       <div className="space-y-3 text-sm text-ink-2">
-        <p>Your Business plan comes with two workspaces. Switch between them from the avatar menu at the top right.</p>
+        <p>Your Pro plan comes with two workspaces. Switch between them from the avatar menu at the top right.</p>
         <ul className="space-y-2">
           <li className="flex gap-2">
             <IconCheckCircle size={18} className="mt-0.5 shrink-0 text-success" />
             <span>
-              <strong className="text-ink">{s.workspace.name} (Business)</strong>: unlimited envelopes, {currentSeats(s)} seat{currentSeats(s) > 1 ? "s" : ""} for your team, delegation, workflow automation, e-Seal and branding.
+              <strong className="text-ink">{s.workspace.name} (Pro)</strong>: unlimited envelopes, {currentSeats(s)} seat{currentSeats(s) > 1 ? "s" : ""} for your team, delegation, workflow automation, e-Seal and branding.
             </span>
           </li>
           <li className="flex gap-2">
             <IconCheckCircle size={18} className="mt-0.5 shrink-0 text-success" />
             <span>
-              <strong className="text-ink">{s.user.name} (Individual)</strong>: now Personal with <strong className="text-ink">unlimited envelopes</strong>, included with Business at no extra cost. Use it for your own documents; the Business workspace is optional.
+              <strong className="text-ink">{s.user.name} (Individual)</strong>: now Personal with <strong className="text-ink">unlimited envelopes</strong>, included with Pro at no extra cost. Use it for your own documents; the Pro workspace is optional.
             </span>
           </li>
         </ul>

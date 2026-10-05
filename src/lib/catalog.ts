@@ -35,7 +35,7 @@ export function regionMeta(code: Region): RegionMeta {
 
 /**
  * Prices per region. Global (AUD) matches the privyid.com pricing page.
- * Indonesia (IDR) per Frans, 22 Sep 2026: Personal 54K / 395K, Business 99K / 725K per seat, tax inclusive.
+ * Indonesia (IDR) per Frans, 22 Sep 2026: Personal 54K / 395K, Pro 99K / 725K per seat, tax inclusive.
  */
 export const PRICE_TABLES: Record<RegionMeta["currency"], Record<PaidTier, Record<Interval, number>>> = {
   AUD: {
@@ -111,7 +111,7 @@ export const BILL_REMINDER_DAYS = [3, 1];
 export const TIER_LABEL: Record<Tier, string> = {
   free: "Free",
   personal: "Personal",
-  business: "Business",
+  business: "Pro",
   enterprise: "Enterprise",
 };
 
@@ -249,7 +249,7 @@ export const COMPARE_TABLE: CompareGroup[] = [
   },
 ];
 
-/** Features a workspace loses when going Business -> Personal (used by the downgrade checklist, UX-07). */
+/** Features a workspace loses when going Pro -> Personal (used by the downgrade checklist, UX-07). */
 export const BUSINESS_ONLY_FEATURES = [
   "Participant groups",
   "Workflow automation",

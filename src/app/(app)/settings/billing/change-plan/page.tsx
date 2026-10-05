@@ -7,7 +7,7 @@ import { CompareTable, PlanCards } from "@/components/PlanCards";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, Toggle } from "@/components/ui";
 import { ENVELOPE_LIMIT, TEMPLATE_LIMIT } from "@/lib/catalog";
-import { activeSubscription, currentInterval, currentPlanName, currentTier, isPrepaidUser, planPrice, prepaidEnd } from "@/lib/engine";
+import { activeSubscription, currentInterval, currentPlanName, currentTier, isPrepaidUser, planPrice, prepaidEnd, isPromoUser } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval } from "@/lib/types";
@@ -24,7 +24,9 @@ export default function ChangePlanPage() {
     ? sub.status === "cancel_scheduled"
       ? `Your plan ends on ${fmtDate(sub.currentPeriodEnd)}. Resume it from Billing to change plans.`
       : `Upgrades can start today or on ${fmtDate(sub.currentPeriodEnd)}. Downgrades take effect on ${fmtDate(sub.currentPeriodEnd)}.`
-    : prepaid
+    : isPromoUser(s)
+      ? `Your free period runs until ${fmtDate(prepaidEnd(s)!)}. A paid plan can start today or on that date.`
+      : prepaid
       ? `Your current plan runs until ${fmtDate(prepaidEnd(s)!)}. Any change starts on that date.`
       : "Your new plan will apply starting today.";
 

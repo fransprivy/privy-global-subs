@@ -9,8 +9,8 @@ import { WorkspaceAvatar } from "@/components/WorkspaceMenu";
 import { CardBrandBadge } from "@/components/payments";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, StatusPill } from "@/components/ui";
-import { BILL_LEAD_DAYS, TEMPLATE_LIMIT, regionMeta } from "@/lib/catalog";
-import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, individualPlan, isIndonesia, isOneTimeUser, isPrepaidUser, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView, type WorkspaceView } from "@/lib/engine";
+import { BILL_LEAD_DAYS, TEMPLATE_LIMIT, TIER_LABEL as TIER_LABEL_UI, regionMeta } from "@/lib/catalog";
+import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, individualPlan, isIndonesia, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView, type WorkspaceView } from "@/lib/engine";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Bill, Invoice } from "@/lib/types";
@@ -63,7 +63,7 @@ function Billing() {
         <UsageTile
           icon={<IconReceipt size={20} />}
           title="Envelopes sent"
-          value={ws.envelopeLimit === null ? `${ws.usage.envelopesSent} sent this month · unlimited${perk ? " (included with Business)" : ""}` : `${ws.usage.envelopesSent} of ${ws.envelopeLimit} used this month`}
+          value={ws.envelopeLimit === null ? `${ws.usage.envelopesSent} sent this month · unlimited${perk ? " (included with Pro)" : ""}` : `${ws.usage.envelopesSent} of ${ws.envelopeLimit} used this month`}
         />
         <UsageTile icon={<IconHistory size={20} />} title="Reusable templates" value={limitText(ws.usage.templates, ws.kind === "individual" && !perk ? TEMPLATE_LIMIT[tier] : null, "used", "saved")} />
         <UsageTile icon={<IconUsers size={20} />} title="Saved contacts" value={`${ws.usage.contacts} saved · unlimited`} />
@@ -72,7 +72,7 @@ function Billing() {
           title="Team members"
           value={
             ws.kind === "individual"
-              ? "1 (you) · invite people in a Business workspace"
+              ? "1 (you) · invite people in a Pro workspace"
               : ws.kind === "enterprise"
                 ? "Custom"
                 : member
@@ -114,7 +114,7 @@ function Billing() {
 
   return (
     <div>
-      <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle={ws.kind === "business" ? `${ws.name} · Business workspace` : "Manage your plan and payment details"} />
+      <SettingsHeader icon={<IconReceipt size={22} />} title="Billing" subtitle={ws.kind === "business" ? `${ws.name} · Pro workspace` : "Manage your plan and payment details"} />
       <div className="space-y-8 px-6 py-6 sm:px-10">
         <SubscriptionCard />
         {usage}
@@ -129,7 +129,7 @@ function Billing() {
   );
 }
 
-/** Individual workspace of a Business owner: the plan is paid for in the Business workspace (R-73). */
+/** Individual workspace of a Pro owner: the plan is paid for in the Pro workspace (R-73). */
 function PerkCard() {
   const { s, api } = useAppState();
   const sub = activeSubscription(s);
@@ -141,11 +141,11 @@ function PerkCard() {
         <p className="text-[15px] text-muted">Your subscription</p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <p className="font-display text-[34px] font-semibold text-ink">Personal</p>
-          <StatusPill tone="success">Included with Business</StatusPill>
+          <StatusPill tone="success">Included with Pro</StatusPill>
           <Spec id="R-73" />
         </div>
         <p className="mt-2 max-w-[760px] text-[15px] text-ink-2">
-          Because you own the Business workspace <strong className="text-ink">{s.workspace.name}</strong>, this Individual workspace has everything in Personal with <strong className="text-ink">unlimited envelopes</strong>. Nothing is charged for it; it stays as long as your Business plan is active{until ? ` (currently until ${fmtDate(until)})` : ""}.
+          Because you own the Pro workspace <strong className="text-ink">{s.workspace.name}</strong>, this Individual workspace has everything in Personal with <strong className="text-ink">unlimited envelopes</strong>. Nothing is charged for it; it stays as long as your Pro plan is active{until ? ` (currently until ${fmtDate(until)})` : ""}.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button className="btn-primary" onClick={() => api.switchWorkspace("business")}>
@@ -156,12 +156,12 @@ function PerkCard() {
           </Link>
         </div>
       </div>
-      <div className="border-t border-line bg-[#f5f5f5] px-6 py-3 text-right text-sm text-ink-2">Invoices, payment methods, seats and cancellation live in the Business workspace billing page.</div>
+      <div className="border-t border-line bg-[#f5f5f5] px-6 py-3 text-right text-sm text-ink-2">Invoices, payment methods, seats and cancellation live in the Pro workspace billing page.</div>
     </section>
   );
 }
 
-/** Member of someone else's Business or Enterprise workspace: nothing to buy here (R-71). */
+/** Member of someone else's Pro or Enterprise workspace: nothing to buy here (R-71). */
 function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
   const { s } = useAppState();
   const flows = useFlows();
@@ -172,7 +172,7 @@ function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
         <p className="text-[15px] text-muted">Workspace plan</p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
           <WorkspaceAvatar w={ws} size={40} />
-          <p className="font-display text-[34px] font-semibold text-ink">{ws.kind === "enterprise" ? "Enterprise" : "Business"}</p>
+          <p className="font-display text-[34px] font-semibold text-ink">{ws.kind === "enterprise" ? "Enterprise" : "Pro"}</p>
           <StatusPill tone={ws.status === "expired" ? "danger" : "success"}>{ws.status === "expired" ? `Expired${ws.expiredAt ? ` · ${fmtDate(ws.expiredAt)}` : ""}` : "Active"}</StatusPill>
           <Spec id="R-71" />
         </div>
@@ -207,7 +207,7 @@ function MemberPlanCard({ ws }: { ws: WorkspaceView }) {
   );
 }
 
-/** Admin view of someone else's Business workspace: members yes, plan no (R-82). */
+/** Admin view of someone else's Pro workspace: members yes, plan no (R-82). */
 function AdminMembers({ ws }: { ws: WorkspaceView }) {
   const { s, api } = useAppState();
   const flows = useFlows();
@@ -251,7 +251,7 @@ function AdminMembers({ ws }: { ws: WorkspaceView }) {
   );
 }
 
-/** Owner view of the Business workspace members (R-78). Seats come from the subscription; invites are limited to the seat count. */
+/** Owner view of the Pro workspace members (R-78). Seats come from the subscription; invites are limited to the seat count. */
 function TeamMembers() {
   const { s, api } = useAppState();
   const flows = useFlows();
@@ -266,13 +266,13 @@ function TeamMembers() {
           Team members <Spec id="R-78" />
         </h2>
         <div className="flex gap-2">
-          {!expired && (
+          {!expired && !isPromoUser(s) && (
             <button className="btn-secondary !py-2" onClick={() => flows.open({ type: "seats" })}>
               Manage seats
             </button>
           )}
           <button className="btn-primary !py-2" disabled={expired} onClick={() => flows.open({ type: "invite" })} title={expired ? "Read-only workspace" : free === 0 ? "All seats are in use: the invite adds a seat, prorated to your renewal date." : undefined}>
-            <IconPlus size={16} /> Invite member{free === 0 && !expired ? " (+1 seat)" : ""}
+            <IconPlus size={16} /> Invite member{free === 0 && !expired && !isPromoUser(s) ? " (+1 seat)" : ""}
           </button>
         </div>
       </div>
@@ -326,6 +326,8 @@ function SubscriptionCard() {
   const prepaid = isPrepaidUser(s);
   const oneTime = isOneTimeUser(s);
   const tier = currentTier(s);
+  const promo = isPromoUser(s) ? promoInfo(s) : null;
+  const carried = !promo ? promoInfo(s) : null;
   const indonesia = isIndonesia(s);
   const bill = openBill(s);
 
@@ -371,10 +373,10 @@ function SubscriptionCard() {
         </button>
       );
     } else {
-      status = <StatusPill tone="success">{indonesia ? "Active · auto-renewal" : "Active"}</StatusPill>;
+      status = carried ? <StatusPill tone="success">Free until {fmtDate(carried.until)} · then paid</StatusPill> : <StatusPill tone="success">{indonesia ? "Active · auto-renewal" : "Active"}</StatusPill>;
       footer = (
         <span className="text-ink-2">
-          Renews on <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> for <strong className="text-ink">{fmtMoney(sub.pendingSeats != null ? planPrice(sub.tier, sub.interval, sub.pendingSeats) : amount)}</strong> on {cardText}
+          {carried ? "Free from your voucher until then. First charge on" : "Renews on"} <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> for <strong className="text-ink">{fmtMoney(sub.pendingSeats != null ? planPrice(sub.tier, sub.interval, sub.pendingSeats) : amount)}</strong> on {cardText}
           {sub.tier === "business" ? ` · ${sub.seats} seat${sub.seats > 1 ? "s" : ""}${sub.pendingSeats != null ? ` until then, ${sub.pendingSeats} after` : ""}` : ""}
         </span>
       );
@@ -398,12 +400,12 @@ function SubscriptionCard() {
     status = <StatusPill tone="danger">Expired · read-only{ended ? ` since ${fmtDate(ended)}` : ""}</StatusPill>;
     footer = (
       <span className="text-danger">
-        Your Business plan ended{ended ? ` on ${fmtDate(ended)}` : ""}. Envelopes can be viewed, downloaded and handed over. Reactivate to sign and send again; billing restarts from the day you reactivate. <Spec id="R-72" />
+        Your Pro plan ended{ended ? ` on ${fmtDate(ended)}` : ""}. Envelopes can be viewed, downloaded and handed over. Reactivate to sign and send again; billing restarts from the day you reactivate. <Spec id="R-72" />
       </span>
     );
     actions.push(
       <button key="react" className="btn-primary" onClick={() => flows.open({ type: "plan", tier: "business", interval: "monthly", seats: Math.max(1, s.workspace.members.length) })}>
-        <IconRefresh size={16} /> Reactivate Business
+        <IconRefresh size={16} /> Reactivate Pro
       </button>
     );
     if ((s.workspace.documents ?? []).length > 0) {
@@ -448,6 +450,22 @@ function SubscriptionCard() {
         </button>
       );
     }
+  } else if (promo) {
+    status = (
+      <StatusPill tone={promo.daysLeft <= 7 ? "warn" : "success"}>
+        Free until {fmtDate(promo.until)} · {promo.daysLeft} day{promo.daysLeft === 1 ? "" : "s"} left
+      </StatusPill>
+    );
+    footer = (
+      <span className="text-ink-2">
+        From voucher <span className="font-mono text-ink">{promo.code}</span>. No card on file and nothing will be charged. Your account returns to Free on <strong className="text-ink">{fmtDate(promo.until)}</strong>. <Spec id="G13" />
+      </span>
+    );
+    actions.push(
+      <button key="keep" className="btn-primary" onClick={() => flows.open({ type: "plan", tier: promo.tier, interval: "monthly", seats: 1 })}>
+        Keep {TIER_LABEL_UI[promo.tier]} after {fmtDate(promo.until)}
+      </button>
+    );
   } else if (prepaid) {
     const pe = prepaidEnd(s)!;
     status = <StatusPill tone="neutral">Prepaid · until {fmtDate(pe)}</StatusPill>;
@@ -459,12 +477,20 @@ function SubscriptionCard() {
     );
   }
 
+  if (tier === "free" && actions.length === 0) {
+    actions.push(
+      <button key="voucher" className="btn-ghost text-ink-2" onClick={() => flows.open({ type: "voucher" })}>
+        Redeem a voucher code
+      </button>
+    );
+  }
+
   return (
     <section className="card overflow-hidden">
       <div className="bg-gradient-to-b from-[#f2f2f2] to-white px-6 pt-5 pb-5">
         <p className="text-[15px] text-muted">Your subscription</p>
         <div className="mt-1 flex flex-wrap items-center gap-3">
-          <p className="font-display text-[34px] font-semibold text-ink">{workspaceStatus(s) === "expired" && (s.activeWorkspace ?? "individual") === "business" ? "Business" : tier === "free" ? "Free Plan" : currentPlanName(s)}</p>
+          <p className="font-display text-[34px] font-semibold text-ink">{workspaceStatus(s) === "expired" && (s.activeWorkspace ?? "individual") === "business" ? "Pro" : tier === "free" ? "Free Plan" : currentPlanName(s)}</p>
           {status}
           <Spec id="UX-01" />
         </div>

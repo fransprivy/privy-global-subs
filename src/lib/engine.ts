@@ -48,6 +48,10 @@ import type {
   Task,
   Tier,
   Usage,
+  VoucherAuditRow,
+  VoucherCode,
+  VoucherConfig,
+  VoucherReason,
   WorkspaceStatus,
 } from "./types";
 
@@ -354,12 +358,12 @@ export function workspaceStatus(s: AppState): WorkspaceStatus {
 export function ownsBusinessWorkspace(s: AppState): boolean {
   return workspaceStatus(s) !== "none";
 }
-/** True while the user's own Business plan is live (active, in grace, cancel scheduled, or a paid one-time period). */
+/** True while the user's own Pro plan is live (active, in grace, cancel scheduled, or a paid one-time period). */
 export function businessPlanActive(s: AppState): boolean {
   return currentTier(s) === "business";
 }
 export type IndividualPlan = "free" | "personal" | "personal_plus";
-/** Plan of the Individual workspace. Business owners get "personal_plus": everything in Personal with unlimited envelopes (R-73). */
+/** Plan of the Individual workspace. Pro owners get "personal_plus": everything in Personal with unlimited envelopes (R-73). */
 export function individualPlan(s: AppState): IndividualPlan {
   if (businessPlanActive(s)) return "personal_plus";
   const t = currentTier(s);
@@ -399,7 +403,7 @@ export function workspaceView(s: AppState, id: string = activeWorkspaceId(s)): W
       role: "owner",
       status: "active",
       readOnly: false,
-      planLabel: plan === "personal_plus" ? "Personal · included with Business" : plan === "personal" ? planName("personal", currentInterval(s) ?? undefined) : "Free",
+      planLabel: plan === "personal_plus" ? "Personal · included with Pro" : plan === "personal" ? (isPromoUser(s) ? `Personal · free until ${fmtDate(prepaidEnd(s)!)}` : planName("personal", currentInterval(s) ?? undefined)) : "Free",
       planTone: plan === "free" ? "neutral" : "success",
       envelopeLimit: plan === "personal_plus" ? null : plan === "personal" ? ENVELOPE_LIMIT.personal : ENVELOPE_LIMIT.free,
       usage: s.usage,
@@ -421,7 +425,7 @@ export function workspaceView(s: AppState, id: string = activeWorkspaceId(s)): W
       role: "owner",
       status: expired ? "expired" : "active",
       readOnly: expired,
-      planLabel: expired ? "Business · expired" : sub?.status === "past_due" ? "Business · payment failed" : sub?.status === "cancel_scheduled" ? `Business · ends ${fmtDate(sub.currentPeriodEnd)}` : "Business · active",
+      planLabel: expired ? "Pro · expired" : isPromoUser(s) ? `Pro · free until ${fmtDate(prepaidEnd(s)!)}` : sub?.status === "past_due" ? "Pro · payment failed" : sub?.status === "cancel_scheduled" ? `Pro · ends ${fmtDate(sub.currentPeriodEnd)}` : "Pro · active",
       planTone: expired ? "danger" : sub?.status === "past_due" ? "danger" : sub?.status === "cancel_scheduled" ? "warn" : "success",
       envelopeLimit: null,
       usage: s.workspace.usage ?? { envelopesSent: 0, templates: 0, contacts: 0 },
@@ -440,7 +444,7 @@ export function workspaceView(s: AppState, id: string = activeWorkspaceId(s)): W
     role: "member",
     status: w.status,
     readOnly: w.status === "expired",
-    planLabel: `${w.kind === "enterprise" ? "Enterprise" : "Business"} · ${w.status === "expired" ? "expired" : "active"}`,
+    planLabel: `${w.kind === "enterprise" ? "Enterprise" : "Pro"} · ${w.status === "expired" ? "expired" : "active"}`,
     planTone: w.status === "expired" ? "danger" : "success",
     envelopeLimit: null,
     usage: w.usage,
@@ -459,17 +463,17 @@ export function allWorkspaces(s: AppState): WorkspaceView[] {
 export function switchWorkspace(s: AppState, id: string): AppState {
   const next = { ...s, activeWorkspace: id };
   const v = workspaceView(next);
-  return toast(next, `Switched to ${v.name}${v.kind === "individual" ? " (Individual)" : v.kind === "business" ? " (Business)" : " (Enterprise)"}.`, "info");
+  return toast(next, `Switched to ${v.name}${v.kind === "individual" ? " (Individual)" : v.kind === "business" ? " (Pro)" : " (Enterprise)"}.`, "info");
 }
 
-/** Business plan ended: the owned workspace becomes read-only instead of disappearing (R-72). Members keep view/download access. */
+/** Pro plan ended: the owned workspace becomes read-only instead of disappearing (R-72). Members keep view/download access. */
 function expireWorkspace(s: AppState, effectiveDateLabel: string): AppState {
   if (workspaceStatus(s) !== "active") return s;
   let next = s;
   for (const m of s.workspace.members.filter((mm) => mm.role !== "owner")) {
     next = sendEmail(next, "N-16", { effectiveDate: effectiveDateLabel }, `N-16:${m.id}:${effectiveDateLabel}`, m.email);
   }
-  next = addHistory(next, "workspace_expired", `${s.workspace.name} is now read-only`, `The Business plan ended on ${effectiveDateLabel}. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to ${individualPlanLabelAfterEnd(s)}.`);
+  next = addHistory(next, "workspace_expired", `${s.workspace.name} is now read-only`, `The Pro plan ended on ${effectiveDateLabel}. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to ${individualPlanLabelAfterEnd(s)}.`);
   return {
     ...next,
     workspace: { ...next.workspace, status: "expired", expiredAt: next.now, closed: true },
@@ -479,7 +483,7 @@ function individualPlanLabelAfterEnd(s: AppState): string {
   const c = s.subscription?.scheduledChange;
   return c && c.tier === "personal" ? planName("personal", c.interval) : "Free";
 }
-/** Called whenever a Business plan starts (checkout, upgrade, one-time purchase, opt-in). Creates or reactivates the owned workspace (R-74, R-75). */
+/** Called whenever a Pro plan starts (checkout, upgrade, one-time purchase, opt-in). Creates or reactivates the owned workspace (R-74, R-75). */
 function activateWorkspace(s: AppState, name?: string): AppState {
   const st = workspaceStatus(s);
   if (st === "active") return { ...s, workspace: { ...s.workspace, status: "active", closed: false } };
@@ -507,11 +511,11 @@ function activateWorkspace(s: AppState, name?: string): AppState {
     activeWorkspace: "business",
     ui: { ...s.ui, welcomeBusiness: true },
   };
-  next = addHistory(next, "workspace_created", `Business workspace "${wsName}" created`, "You are the owner. Your Individual workspace now has unlimited envelopes (Personal, included with Business).");
+  next = addHistory(next, "workspace_created", `Pro workspace "${wsName}" created`, "You are the owner. Your Individual workspace now has unlimited envelopes (Personal, included with Pro).");
   return next;
 }
 
-/** Owner moves every envelope from the Business workspace into their Individual workspace (existing Document Handover feature, UX-08). */
+/** Owner moves every envelope from the Pro workspace into their Individual workspace (existing Document Handover feature, UX-08). */
 export function handoverDocuments(s: AppState): AppState {
   const docs = s.workspace.documents ?? [];
   if (docs.length === 0) return toast(s, "There are no documents left to hand over.", "info");
@@ -520,7 +524,7 @@ export function handoverDocuments(s: AppState): AppState {
     tasks: [...docs.map((d) => ({ ...d, id: `ho_${d.id}` })), ...s.tasks],
     workspace: { ...s.workspace, documents: [], handedOverAt: s.now },
   };
-  next = addHistory(next, "handover", `${docs.length} document${docs.length === 1 ? "" : "s"} handed over to your Individual workspace`, `From ${s.workspace.name}. They stay accessible even if the Business workspace is never reactivated.`);
+  next = addHistory(next, "handover", `${docs.length} document${docs.length === 1 ? "" : "s"} handed over to your Individual workspace`, `From ${s.workspace.name}. They stay accessible even if the Pro workspace is never reactivated.`);
   return toast(next, `${docs.length} document${docs.length === 1 ? "" : "s"} moved to your Individual workspace.`);
 }
 
@@ -592,7 +596,7 @@ export function transferOwnership(s: AppState, memberId: string): AppState {
   return toast(next, `${m.name} now owns ${s.workspace.name}. Your card will not be charged again.`, "info");
 }
 
-/** Owner can reactivate an expired Business workspace with a new checkout (R-75). Shown as "Reactivate" wherever Business is offered. */
+/** Owner can reactivate an expired Pro workspace with a new checkout (R-75). Shown as "Reactivate" wherever Pro is offered. */
 export function canReactivateBusiness(s: AppState): boolean {
   return workspaceStatus(s) === "expired";
 }
@@ -644,7 +648,7 @@ export function handoverSelected(s: AppState, ids: string[], dest: HandoverDesti
   return toast(next, `${moved.length} envelope${moved.length === 1 ? "" : "s"} handed over.`);
 }
 
-/** Owner deletes an expired Business workspace to start again from scratch (R-83). Documents can be handed over first. */
+/** Owner deletes an expired Pro workspace to start again from scratch (R-83). Documents can be handed over first. */
 export function deleteWorkspace(s: AppState, handoverFirst: boolean): AppState {
   if (workspaceStatus(s) !== "expired") return s;
   const docs = s.workspace.documents ?? [];
@@ -655,7 +659,7 @@ export function deleteWorkspace(s: AppState, handoverFirst: boolean): AppState {
     workspace: { name: "", members: s.workspace.members.filter((m) => m.role === "owner"), automations: 0, retentionPolicies: 0, eSeal: false, branding: false, trustedDomain: null, closed: true, status: "none", documents: [], usage: { envelopesSent: 0, templates: 0, contacts: 0 }, createdAt: null, expiredAt: null, handedOverAt: null },
     activeWorkspace: "individual",
   };
-  next = addHistory(next, "workspace_deleted", `${name} deleted`, handoverFirst && docs.length ? `${docs.length} envelope${docs.length === 1 ? "" : "s"} moved to your Individual workspace first. Buying Business again creates a new workspace.` : "Buying Business again creates a new workspace.");
+  next = addHistory(next, "workspace_deleted", `${name} deleted`, handoverFirst && docs.length ? `${docs.length} envelope${docs.length === 1 ? "" : "s"} moved to your Individual workspace first. Buying Pro again creates a new workspace.` : "Buying Pro again creates a new workspace.");
   return toast(next, `${name} was deleted.`, "info");
 }
 
@@ -940,8 +944,13 @@ export function runSweep(s: AppState): AppState {
   // Expire Payment IDs that ran out (a day has passed since they were generated).
   next = expireStalePayments(next);
 
+  // Voucher benefit: ends on its date, account returns to Free, nothing is charged (G13).
+  if (!activeSubscription(next) && next.prepaid?.source === "redeem") {
+    const pe = prepaidEnd(next);
+    if (pe && isSameOrAfter(next.now, pe)) next = expirePromo(next, pe);
+  }
   // One-time (Indonesia) users: bill before expiry, no grace.
-  if (!activeSubscription(next) && next.prepaid?.source === "one_time") {
+  else if (!activeSubscription(next) && next.prepaid?.source === "one_time") {
     const pe = prepaidEnd(next);
     if (pe) {
       const dl = daysBetween(today, pe);
@@ -1054,12 +1063,14 @@ export interface CheckoutInput {
   seats: number;
   card: Card;
   consentText: string;
-  /** Name for the new Business workspace (first Business purchase only). */
+  /** Name for the new Pro workspace (first Pro purchase only). */
   workspaceName?: string;
 }
 
 /** First subscription (Free -> paid) or resubscribe after ENDED. On-session, charge already succeeded in the UI flow. */
-export function completeSubscription(s: AppState, input: CheckoutInput): AppState {
+export function completeSubscription(s0: AppState, input: CheckoutInput): AppState {
+  // Buying a plan during a free voucher period ends the free period today (user confirmed the forfeit).
+  const s = endPromoForPurchase(s0, input.tier);
   const start = startOfDayUTC(s.now);
   const anchorDay = dayOfMonthUTC(start);
   const end = periodEnd(start, input.interval, anchorDay);
@@ -1395,7 +1406,7 @@ export function removeCard(s: AppState, id: string): RemoveCardResult {
 }
 
 /* ------------------------------------------------------------------ */
-/* Business seats: add now (prorated), remove at period end             */
+/* Pro seats: add now (prorated), remove at period end             */
 /* ------------------------------------------------------------------ */
 export interface SeatPreview {
   current: number;
@@ -1413,7 +1424,7 @@ export interface SeatPreview {
   blockedReason: string | null;
 }
 
-/** One Business subscription has one end date: added seats are prorated to it, removed seats leave at it. */
+/** One Pro subscription has one end date: added seats are prorated to it, removed seats leave at it. */
 export function previewSeatChange(s: AppState, target: number): SeatPreview {
   const sub = activeSubscription(s)!;
   const today = startOfDayUTC(s.now);
@@ -1681,7 +1692,9 @@ function expireStalePayments(s: AppState): AppState {
 }
 
 /** Payment received for a Payment ID (simulated in the prototype): the period is added and the account is entitled. */
-export function confirmPayment(s: AppState, billId: string): AppState {
+export function confirmPayment(s0: AppState, billId: string): AppState {
+  const paying = (s0.bills ?? []).find((b) => b.id === billId);
+  const s = paying && paying.status === "pending_payment" ? endPromoForPurchase(s0, paying.tier) : s0;
   const bill = (s.bills ?? []).find((b) => b.id === billId);
   if (!bill || bill.status !== "pending_payment" || !bill.payment) return s;
   const label = methodLabel(bill.payment.method, bill.payment.bank, bill.payment.cardLast4);
@@ -1753,7 +1766,7 @@ export function cardFromNumber(numberRaw: string, expMonth: number, expYear: num
   };
 }
 
-/** Losses shown in the Business -> Personal checklist (UX-07). */
+/** Losses shown in the Pro -> Personal checklist (UX-07). */
 export function downgradeLosses(s: AppState): string[] {
   const others = s.workspace.members.filter((m) => m.role !== "owner");
   const out: string[] = [];
@@ -1773,10 +1786,297 @@ export function downgradeLosses(s: AppState): string[] {
   if (s.workspace.branding) off.push("custom branding");
   if (s.workspace.trustedDomain) off.push(`trusted domain (${s.workspace.trustedDomain})`);
   if (off.length) out.push(`${capitalize(off.join(", "))} turn off`);
-  out.push(`Business-only features disabled: ${BUSINESS_ONLY_FEATURES.filter((f) => !/e-Seal|branding|Trusted|automation|Retention/.test(f)).join(", ")}`);
+  out.push(`Pro-only features disabled: ${BUSINESS_ONLY_FEATURES.filter((f) => !/e-Seal|branding|Trusted|automation|Retention/.test(f)).join(", ")}`);
   return out;
 }
 
 function capitalize(t: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/* ------------------------------------------------------------------ */
+/* Voucher codes: Redeem Code Guardrails (G1 to G13)                    */
+/* ------------------------------------------------------------------ */
+export const ACCOUNT_ID = "acc_frans";
+export const DEFAULT_VOUCHER_CONFIG: VoucherConfig = {
+  accountFailLimit: 5,
+  accountWindowMin: 15,
+  accountLockMin: 15,
+  ipFailLimit: 20,
+  ipWindowMin: 60,
+  ipLockMin: 60,
+  devicePerCampaign: 1,
+  ipPer24h: 5,
+};
+/** Codes are case-insensitive; spaces and dashes are ignored. */
+export function normalizeCode(raw: string): string {
+  return raw.toUpperCase().replace(/[\s-]/g, "");
+}
+function addMinutes(iso: string, min: number): string {
+  return new Date(new Date(iso).getTime() + min * 60000).toISOString();
+}
+function minutesUntil(nowIso: string, untilIso: string): number {
+  return Math.max(1, Math.ceil((new Date(untilIso).getTime() - new Date(nowIso).getTime()) / 60000));
+}
+export function advanceMinutes(s: AppState, min: number): AppState {
+  return toast({ ...s, now: addMinutes(s.now, min) }, `Clock moved ${min} minutes forward.`, "info");
+}
+
+/** Free plan granted by a voucher and still running (no subscription behind it). */
+export function isPromoUser(s: AppState): boolean {
+  return !activeSubscription(s) && s.prepaid?.source === "redeem" && !!prepaidEnd(s) && !isSameOrAfter(s.now, prepaidEnd(s)!);
+}
+export interface PromoInfo {
+  tier: PaidTier;
+  until: string;
+  code: string;
+  campaign: string;
+  daysLeft: number;
+  /** True when a paid plan is already set up to start on `until`. */
+  converted: boolean;
+}
+export function promoInfo(s: AppState): PromoInfo | null {
+  const today = startOfDayUTC(s.now);
+  if (isPromoUser(s)) {
+    const pe = prepaidEnd(s)!;
+    const p = s.prepaid!.periods.find((x) => x.end === pe)!;
+    return { tier: s.prepaid!.tier, until: pe, code: p.voucherCode ?? "", campaign: p.campaign ?? "", daysLeft: Math.max(0, daysBetween(today, pe)), converted: false };
+  }
+  const sub = activeSubscription(s);
+  if (sub?.promo && !isSameOrAfter(s.now, sub.promo.until)) {
+    return { tier: sub.promo.tier, until: sub.promo.until, code: sub.promo.code, campaign: sub.promo.campaign, daysLeft: Math.max(0, daysBetween(today, sub.promo.until)), converted: true };
+  }
+  return null;
+}
+
+function audit(s: AppState, row: Pick<VoucherAuditRow, "result" | "reason" | "codeEntered"> & { code?: VoucherCode | null; accountId?: string; email?: string; ip?: string; deviceId?: string }): AppState {
+  const v = s.vouchers!;
+  const entry: VoucherAuditRow = {
+    id: uid("au"),
+    at: s.now,
+    codeId: row.code?.id ?? null,
+    codeEntered: row.codeEntered,
+    campaign: row.code?.campaign ?? null,
+    accountId: row.accountId ?? ACCOUNT_ID,
+    email: row.email ?? s.user.email,
+    region: regionOf(s),
+    ip: row.ip ?? v.ip,
+    deviceId: row.deviceId ?? v.deviceId,
+    result: row.result,
+    reason: row.reason,
+  };
+  return { ...s, vouchers: { ...v, audit: [entry, ...v.audit] } };
+}
+/** The per-IP lock belongs to one network; switching network in the Prototype panel leaves it behind. */
+export function ipLocked(s: AppState): boolean {
+  const v = s.vouchers;
+  return !!v && !!v.ipLockUntil && v.ipLockUntil > s.now && (v.ipLockIp ?? v.ip) === v.ip;
+}
+export function accountLocked(s: AppState): boolean {
+  const v = s.vouchers;
+  return !!v && !!v.accountLockUntil && v.accountLockUntil > s.now;
+}
+const NOT_COUNTED: VoucherReason[] = ["EMAIL_UNVERIFIED", "RATE_LIMIT_ACCOUNT", "RATE_LIMIT_IP"];
+/** G11: after a failure, lock the account or the IP when the window limit is reached. */
+function applyRateLimit(s: AppState): AppState {
+  const v = s.vouchers!;
+  const c = v.config;
+  const since = (min: number) => addMinutes(s.now, -min);
+  const fails = v.audit.filter((a) => a.result === "FAIL" && !NOT_COUNTED.includes(a.reason));
+  const byAccount = fails.filter((a) => a.accountId === ACCOUNT_ID && a.at > since(c.accountWindowMin)).length;
+  const byIp = fails.filter((a) => a.ip === v.ip && a.at > since(c.ipWindowMin)).length;
+  let next = s;
+  if (byAccount >= c.accountFailLimit && !(v.accountLockUntil && v.accountLockUntil > s.now)) next = { ...next, vouchers: { ...next.vouchers!, accountLockUntil: addMinutes(s.now, c.accountLockMin) } };
+  if (byIp >= c.ipFailLimit && !ipLocked(s)) next = { ...next, vouchers: { ...next.vouchers!, ipLockUntil: addMinutes(s.now, c.ipLockMin), ipLockIp: v.ip } };
+  return next;
+}
+
+export interface VoucherResult {
+  ok: boolean;
+  reason: VoucherReason;
+  message: string;
+  tier?: PaidTier;
+  months?: number;
+  endsAt?: string;
+  /** Same account, same code again: the earlier success is returned, nothing new is granted. */
+  repeat?: boolean;
+}
+const GENERIC = "This code can't be used. Check the code and try again.";
+
+/**
+ * Redeem a voucher code. Order follows the PRD with one change: the rate-limit lock is checked first,
+ * otherwise a locked client could keep telling real codes (lock message) from wrong ones (generic message).
+ * Quota is checked and used last, so a failed check never burns quota.
+ */
+export function redeemVoucher(s: AppState, raw: string): { state: AppState; result: VoucherResult } {
+  const v = s.vouchers;
+  const entered = raw.trim();
+  if (!v) return { state: s, result: { ok: false, reason: "UNKNOWN", message: GENERIC } };
+  const key = normalizeCode(entered);
+  const code = v.codes.find((c) => normalizeCode(c.code) === key) ?? null;
+  const fail = (reason: VoucherReason, message: string, counted = true): { state: AppState; result: VoucherResult } => {
+    let next = audit(s, { result: "FAIL", reason, codeEntered: entered, code });
+    if (counted) next = applyRateLimit(next);
+    return { state: next, result: { ok: false, reason, message } };
+  };
+
+  // G11 lock (checked before anything else, see note above)
+  if (v.accountLockUntil && v.accountLockUntil > s.now) return fail("RATE_LIMIT_ACCOUNT", `Too many attempts. Try again in ${minutesUntil(s.now, v.accountLockUntil)} minutes.`, false);
+  if (ipLocked(s)) return fail("RATE_LIMIT_IP", `Too many attempts from your network. Try again in ${minutesUntil(s.now, v.ipLockUntil!)} minutes.`, false);
+
+  // 1. Code exists and is Active. Unknown and Paused share one message (no enumeration).
+  if (!code) return fail("UNKNOWN", GENERIC);
+  // Idempotency: this account already holds this code's benefit.
+  const mine = v.redemptions.find((r) => r.accountId === ACCOUNT_ID && r.codeId === code.id);
+  if (mine && !isSameOrAfter(s.now, mine.endsAt) && (isPromoUser(s) || !!activeSubscription(s)?.promo)) {
+    return { state: s, result: { ok: true, reason: "SUCCESS", message: "Already claimed.", tier: code.tier, months: code.months, endsAt: mine.endsAt, repeat: true } };
+  }
+  if (code.status === "paused") return fail("PAUSED", GENERIC);
+  // 2. Redeem-by date (G2)
+  if (isSameOrAfter(s.now, code.redeemBy)) return fail("EXPIRED", `This code expired on ${fmtDate(code.redeemBy)}.`);
+  // 3. Region lock (G6)
+  if (!code.regions.includes(regionOf(s))) return fail("REGION", `This code isn't available in your region (${regionMeta(regionOf(s)).name}).`);
+  // 5. Verified email (G10): not a failed attempt, the code is not consumed.
+  if (s.user.emailVerified === false) return fail("EMAIL_UNVERIFIED", "Verify your email to claim this code.", false);
+  // 6. Free plan, no active benefit (G8, G9)
+  if (isPromoUser(s) || activeSubscription(s)?.promo) {
+    const info = promoInfo(s);
+    return fail("ACTIVE_BENEFIT", `You already have a free plan from a voucher${info ? ` until ${fmtDate(info.until)}` : ""}. Codes can't be combined.`);
+  }
+  if (currentTier(s) !== "free") return fail("NOT_FREE", `Voucher codes are for accounts on the Free plan. You are on ${currentPlanName(s)}.`);
+  // 7. Once per account per campaign (G7)
+  if (v.redemptions.some((r) => r.accountId === ACCOUNT_ID && r.campaign === code.campaign)) return fail("ALREADY_IN_CAMPAIGN", "You have already claimed a code from this promotion.");
+  // 8. Device and IP velocity (G12)
+  const inCampaign = v.redemptions.filter((r) => r.campaign === code.campaign);
+  const dayAgo = addMinutes(s.now, -24 * 60);
+  if (inCampaign.filter((r) => r.deviceId === v.deviceId).length >= v.config.devicePerCampaign || inCampaign.filter((r) => r.ip === v.ip && r.at >= dayAgo).length >= v.config.ipPer24h) {
+    return fail("VELOCITY", "This code can't be claimed from this device or network. Contact support if you think this is a mistake.");
+  }
+  // 9. Quota (G1), checked last
+  if (code.used >= code.maxRedemptions) return fail("EXHAUSTED", "This code has been fully redeemed.");
+
+  // 10. One transaction: use quota, write redemption, grant entitlement, write audit log.
+  const start = startOfDayUTC(s.now);
+  const end = addMonthsClamped(start, code.months, dayOfMonthUTC(start));
+  let next: AppState = {
+    ...s,
+    prepaid: {
+      tier: code.tier,
+      source: "redeem",
+      periods: [{ start, end, tier: code.tier, interval: "monthly", purchasedAt: s.now, seats: 1, paidWithLabel: `Voucher ${code.code}`, voucherCode: code.code, campaign: code.campaign }],
+    },
+    vouchers: {
+      ...v,
+      codes: v.codes.map((c) => (c.id === code.id ? { ...c, used: c.used + 1 } : c)),
+      redemptions: [{ id: uid("rd"), codeId: code.id, campaign: code.campaign, accountId: ACCOUNT_ID, at: s.now, ip: v.ip, deviceId: v.deviceId, endsAt: end }, ...v.redemptions],
+    },
+  };
+  next = audit(next, { result: "SUCCESS", reason: "SUCCESS", codeEntered: entered, code });
+  if (code.tier === "business") next = activateWorkspace(next);
+  next = addHistory(next, "voucher_redeemed", `Voucher ${code.code} redeemed: ${TIER_LABEL[code.tier]} free for ${code.months} months`, `Free until ${fmtDate(end)}. No card on file, nothing will be charged. The account returns to Free on that date.`);
+  next = sendEmail(next, "N-40", { tierLabel: TIER_LABEL[code.tier], newEnd: fmtDate(end), daysLeft: code.months });
+  next = toast(next, `${TIER_LABEL[code.tier]} is yours, free until ${fmtDate(end)}.`);
+  return { state: next, result: { ok: true, reason: "SUCCESS", message: "Claimed.", tier: code.tier, months: code.months, endsAt: end } };
+}
+
+/** G13: the free period ended. Back to Free, no payment attempt. */
+function expirePromo(s: AppState, pe: string): AppState {
+  const tier = s.prepaid!.tier;
+  const p = s.prepaid!.periods.find((x) => x.end === pe);
+  const code = s.vouchers?.codes.find((c) => c.code === p?.voucherCode) ?? null;
+  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[tier]} period ended`, "Your account is back on Free. Nothing was charged. Your documents are kept.");
+  if (next.vouchers) next = audit(next, { result: "INFO", reason: "PROMO_ENDED", codeEntered: p?.voucherCode ?? "", code });
+  next = sendEmail(next, "N-41", { tierLabel: TIER_LABEL[tier], prepaidEnd: fmtDate(pe), isBusiness: tier === "business" }, `N-41:${pe}`);
+  if (tier === "business") next = expireWorkspace(next, fmtDate(pe));
+  return { ...next, prepaid: null };
+}
+/** "Start now" during a free period: the free days left are forfeited (the user confirmed this). */
+function endPromoForPurchase(s: AppState, newTier: PaidTier): AppState {
+  if (!isPromoUser(s)) return s;
+  const info = promoInfo(s)!;
+  const code = s.vouchers?.codes.find((c) => c.code === info.code) ?? null;
+  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[info.tier]} period ended early`, `You started a paid plan today. ${info.daysLeft} free day${info.daysLeft === 1 ? "" : "s"} were not used.`);
+  if (next.vouchers) next = audit(next, { result: "INFO", reason: "PROMO_ENDED_BY_PURCHASE", codeEntered: info.code, code });
+  if (info.tier === "business" && newTier !== "business") next = expireWorkspace(next, fmtDate(s.now));
+  return { ...next, prepaid: null };
+}
+/** "Start when my free period ends": card saved now, first charge on the promo end date. */
+export function subscribeAfterPromo(s: AppState, card: Card, consentText: string, tier: PaidTier, interval: Interval, seats: number): AppState {
+  if (!isPromoUser(s)) return s;
+  const info = promoInfo(s)!;
+  const sameTier = tier === info.tier;
+  let next = optInAutoRenew(s, card, consentText, sameTier ? interval : "monthly", info.tier, sameTier ? seats : 1);
+  const amount = planPrice(tier, interval, seats);
+  const sub = next.subscription!;
+  next = {
+    ...next,
+    subscription: {
+      ...sub,
+      promo: { code: info.code, campaign: info.campaign, until: info.until, tier: info.tier },
+      ...(sameTier
+        ? {}
+        : {
+            status: "change_scheduled" as const,
+            scheduledChange: { kind: TIER_RANK[tier] > TIER_RANK[info.tier] ? ("scheduled_upgrade" as const) : ("downgrade" as const), tier, interval, seats, effectiveAt: info.until, createdAt: s.now },
+          }),
+    },
+    consents: next.consents.map((c, i) => (i === 0 ? { ...c, amount, interval } : c)),
+    history: next.history.map((h, i) => (i === 0 ? { ...h, title: `${planName(tier, interval)} starts on ${fmtDate(info.until)}, when your free period ends`, detail: `Nothing charged today. First charge of ${fmtMoney(amount)} on ${fmtDate(info.until)} to card ending ${card.last4}.` } : h)),
+    emails: next.emails.filter((e) => s.emails.some((o) => o.id === e.id)),
+  };
+  next = sendEmail(next, "N-01", { planName: planName(tier, interval), tierLabel: TIER_LABEL[tier], intervalWord: intervalWord(interval), amount: fmtMoney(amount), nextDate: fmtDate(info.until), invoiceNumber: "", last4: card.last4 });
+  const code = s.vouchers?.codes.find((c) => c.code === info.code) ?? null;
+  if (next.vouchers) next = audit(next, { result: "INFO", reason: "PROMO_CONVERTED", codeEntered: info.code, code });
+  return toast(next, `${planName(tier, interval)} starts on ${fmtDate(info.until)}. Nothing is charged before then.`);
+}
+
+/* Prototype controls for vouchers */
+export function setVoucherClient(s: AppState, patch: { deviceId?: string; ip?: string }): AppState {
+  return s.vouchers ? { ...s, vouchers: { ...s.vouchers, ...patch } } : s;
+}
+export function setEmailVerified(s: AppState, verified: boolean): AppState {
+  return { ...s, user: { ...s.user, emailVerified: verified } };
+}
+/** G3 kill switch. */
+export function toggleVoucherPause(s: AppState, codeId: string): AppState {
+  if (!s.vouchers) return s;
+  const c = s.vouchers.codes.find((x) => x.id === codeId);
+  if (!c) return s;
+  const status = c.status === "active" ? "paused" : "active";
+  return toast({ ...s, vouchers: { ...s.vouchers, codes: s.vouchers.codes.map((x) => (x.id === codeId ? { ...x, status } : x)) } }, `${c.code} is now ${status}. ${status === "paused" ? "New claims are rejected; benefits already granted stay." : ""}`, "info");
+}
+/** Other accounts guessing codes from the same IP (G11 per-IP limit). */
+export function addIpFailures(s: AppState, n: number): AppState {
+  if (!s.vouchers) return s;
+  let next = s;
+  for (let i = 0; i < n; i++) next = audit(next, { result: "FAIL", reason: "UNKNOWN", codeEntered: `GUESS${1000 + i}`, accountId: `acc_other_${i % 4}`, email: `other${i % 4}@example.com`, deviceId: `dev-other-${i % 4}` });
+  next = applyRateLimit(next);
+  return toast(next, `${n} failed attempts from other accounts on this IP were added.`, "info");
+}
+/** NFR: 50 parallel requests on the last slot give exactly 1 success. */
+export function simulateLastSlot(s: AppState, codeId: string): AppState {
+  if (!s.vouchers) return s;
+  const c0 = s.vouchers.codes.find((x) => x.id === codeId);
+  if (!c0) return s;
+  const used = c0.maxRedemptions - 1;
+  let next: AppState = { ...s, vouchers: { ...s.vouchers, codes: s.vouchers.codes.map((x) => (x.id === codeId ? { ...x, used } : x)) } };
+  const code = { ...c0, used };
+  for (let i = 0; i < 50; i++) {
+    const who = { accountId: `acc_load_${i + 1}`, email: `load${i + 1}@example.com`, ip: `203.0.113.${i + 1}`, deviceId: `dev-load-${i + 1}` };
+    if (i === 0) {
+      const start = startOfDayUTC(next.now);
+      next = {
+        ...next,
+        vouchers: {
+          ...next.vouchers!,
+          codes: next.vouchers!.codes.map((x) => (x.id === codeId ? { ...x, used: x.maxRedemptions } : x)),
+          redemptions: [{ id: uid("rd"), codeId, campaign: code.campaign, accountId: who.accountId, at: next.now, ip: who.ip, deviceId: who.deviceId, endsAt: addMonthsClamped(start, code.months, dayOfMonthUTC(start)) }, ...next.vouchers!.redemptions],
+        },
+      };
+      next = audit(next, { result: "SUCCESS", reason: "SUCCESS", codeEntered: code.code, code, ...who });
+    } else {
+      next = audit(next, { result: "FAIL", reason: "EXHAUSTED", codeEntered: code.code, code, ...who });
+    }
+  }
+  return toast(next, `50 parallel claims on the last slot of ${code.code}: 1 success, 49 "fully redeemed". Quota ${code.maxRedemptions} of ${code.maxRedemptions}.`, "info");
 }

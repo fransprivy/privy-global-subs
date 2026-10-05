@@ -58,7 +58,7 @@ export default function WorkspacePreferencesPage() {
                       Pay each period yourself (QRIS, card or virtual account) or turn on automatic renewal with a card. <Spec id="R-61" />
                     </li>
                     <li>One-time payments have no grace period: a plan that is not paid by its expiry date ends on that day.</li>
-                    <li>Business plans are available in Indonesia at the same seat model as everywhere else.</li>
+                    <li>Pro plans are available in Indonesia at the same seat model as everywhere else.</li>
                   </ul>
                 ) : (
                   <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -71,7 +71,7 @@ export default function WorkspacePreferencesPage() {
                 <p className="mt-3 flex items-start gap-2 rounded-lg bg-info-tint px-3 py-2 text-sm text-info">
                   <IconInfo size={16} className="mt-0.5 shrink-0" />
                   <span>
-                    Your current plan stays active after the change. Personal and Business plans are shared between regions, so nothing expires or is charged when you switch. Future bills and renewals use {shownMeta.currency}. <Spec id="R-62" />
+                    Your current plan stays active after the change. Personal and Pro plans are shared between regions, so nothing expires or is charged when you switch. Future bills and renewals use {shownMeta.currency}. <Spec id="R-62" />
                   </span>
                 </p>
               )}

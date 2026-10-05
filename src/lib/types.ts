@@ -28,6 +28,14 @@ export interface Card {
 
 export type ChangeKind = "downgrade" | "interval_down" | "scheduled_upgrade";
 
+/** A subscription that starts when a voucher benefit ends: free until `until`, first charge on that date. */
+export interface PromoCarry {
+  code: string;
+  campaign: string;
+  until: string;
+  tier: PaidTier;
+}
+
 export interface ScheduledChange {
   kind: ChangeKind;
   tier: PaidTier;
@@ -73,8 +81,10 @@ export interface Subscription {
   attempts: PaymentAttempt[];
   createdAt: string;
   endedAt: string | null;
-  /** Business only: seat reduction that takes effect at the end of the current period (no refund). */
+  /** Pro only: seat reduction that takes effect at the end of the current period (no refund). */
   pendingSeats?: number | null;
+  /** Set while the subscription is still inside a free voucher period (no charge yet). */
+  promo?: PromoCarry | null;
 }
 
 export interface PrepaidPeriod {
@@ -87,13 +97,16 @@ export interface PrepaidPeriod {
   /** How this period was paid (Indonesia one-time purchases). Card payers are eligible to convert to auto-renewal. */
   paidWith?: PaymentMethodKind;
   paidWithLabel?: string;
+  /** Voucher benefit: the code and campaign that granted this period (G13). */
+  voucherCode?: string;
+  campaign?: string;
 }
 
 export interface Prepaid {
   tier: PaidTier;
   periods: PrepaidPeriod[];
   /** "migration": old Global SKU units. "one_time": Indonesia one-time purchases (bills before expiry, no grace). */
-  source?: "migration" | "one_time";
+  source?: "migration" | "one_time" | "redeem";
 }
 
 export type BillStatus = "awaiting" | "pending_payment" | "paid" | "expired" | "void";
@@ -116,7 +129,7 @@ export interface Bill {
   interval: Interval;
   seats: number;
   amount: number;
-  /** First Business purchase: name of the workspace to create when the payment lands. */
+  /** First Pro purchase: name of the workspace to create when the payment lands. */
   workspaceName?: string;
   /** Period the payment buys. For renewals: starts at the current expiry. */
   periodStart: string;
@@ -179,6 +192,8 @@ export type HistoryType =
   | "workspace_left"
   | "ownership_transferred"
   | "workspace_deleted"
+  | "voucher_redeemed"
+  | "promo_ended"
   | "role_changed"
   | "envelope_sent"
   | "note";
@@ -219,13 +234,13 @@ export interface Member {
 }
 
 /**
- * "none": the user has never bought Business (no Business workspace exists).
- * "active": the owned Business workspace is usable.
- * "expired": the Business plan ended; the workspace is read-only (view and download only) until reactivated (R-72).
+ * "none": the user has never bought Pro (no Pro workspace exists).
+ * "active": the owned Pro workspace is usable.
+ * "expired": the Pro plan ended; the workspace is read-only (view and download only) until reactivated (R-72).
  */
 export type WorkspaceStatus = "none" | "active" | "expired";
 
-/** The Business workspace this user OWNS. There is at most one per user (R-70). */
+/** The Pro workspace this user OWNS. There is at most one per user (R-70). */
 export interface Workspace {
   name: string;
   members: Member[];
@@ -246,7 +261,7 @@ export interface Workspace {
   usage?: Usage;
 }
 
-/** A Business or Enterprise workspace the user is a MEMBER of (bought by someone else). Never affects the user's own plan (R-71). */
+/** A Pro or Enterprise workspace the user is a MEMBER of (bought by someone else). Never affects the user's own plan (R-71). */
 export interface OtherWorkspace {
   id: string;
   name: string;
@@ -292,9 +307,96 @@ export interface UIState {
   /** In-flow test guide (right-hand panel). Optional so states saved before it existed still load. */
   guideOpen?: boolean;
   checkedSteps?: string[];
-  /** Shown once after the Business workspace is created (M-15). */
+  /** Shown once after the Pro workspace is created (M-15). */
   welcomeBusiness?: boolean;
   toast: { id: string; text: string; tone: "success" | "info" | "warn" } | null;
+}
+
+/* ---------------- Voucher codes (Redeem Code Guardrails PRD) ---------------- */
+export type VoucherReason =
+  | "SUCCESS"
+  | "UNKNOWN"
+  | "PAUSED"
+  | "EXPIRED"
+  | "REGION"
+  | "RATE_LIMIT_ACCOUNT"
+  | "RATE_LIMIT_IP"
+  | "EMAIL_UNVERIFIED"
+  | "NOT_FREE"
+  | "ACTIVE_BENEFIT"
+  | "ALREADY_IN_CAMPAIGN"
+  | "VELOCITY"
+  | "EXHAUSTED"
+  | "PROMO_ENDED"
+  | "PROMO_ENDED_BY_PURCHASE"
+  | "PROMO_CONVERTED";
+
+export interface VoucherCode {
+  id: string;
+  /** Text the user types. Compared after trim, uppercase and removing spaces and dashes. */
+  code: string;
+  campaign: string;
+  /** G4: one code, one benefit. */
+  tier: PaidTier;
+  months: number;
+  /** G6: at least one region. */
+  regions: Region[];
+  /** G1: 1 for unique codes (Option A), N for a shared code (Option B). */
+  maxRedemptions: number;
+  used: number;
+  /** G2. */
+  redeemBy: string;
+  /** G3. */
+  status: "active" | "paused";
+  option: "A" | "B";
+}
+export interface VoucherRedemption {
+  id: string;
+  codeId: string;
+  campaign: string;
+  accountId: string;
+  at: string;
+  ip: string;
+  deviceId: string;
+  endsAt: string;
+}
+/** G5: append-only, every attempt. */
+export interface VoucherAuditRow {
+  id: string;
+  at: string;
+  codeId: string | null;
+  codeEntered: string;
+  campaign: string | null;
+  accountId: string;
+  email: string;
+  region: Region;
+  ip: string;
+  deviceId: string;
+  result: "SUCCESS" | "FAIL" | "INFO";
+  reason: VoucherReason;
+}
+export interface VoucherConfig {
+  accountFailLimit: number;
+  accountWindowMin: number;
+  accountLockMin: number;
+  ipFailLimit: number;
+  ipWindowMin: number;
+  ipLockMin: number;
+  devicePerCampaign: number;
+  ipPer24h: number;
+}
+export interface VoucherState {
+  codes: VoucherCode[];
+  redemptions: VoucherRedemption[];
+  audit: VoucherAuditRow[];
+  config: VoucherConfig;
+  /** Simulated client fingerprint (prototype). */
+  deviceId: string;
+  ip: string;
+  accountLockUntil?: string | null;
+  ipLockUntil?: string | null;
+  /** The network the IP lock applies to. */
+  ipLockIp?: string | null;
 }
 
 export interface WorkspacePrefs {
@@ -311,7 +413,9 @@ export interface AppState {
   prefs?: WorkspacePrefs;
   /** Indonesia one-time bills and payment requests. */
   bills?: Bill[];
-  user: { name: string; email: string; maskedEmail: string };
+  user: { name: string; email: string; maskedEmail: string; emailVerified?: boolean };
+  /** Voucher (redeem code) campaigns, codes, redemptions and audit log. */
+  vouchers?: VoucherState;
   subscription: Subscription | null;
   prepaid: Prepaid | null;
   /** Default card. Backups are tried in order when the default is declined (R-19b). */

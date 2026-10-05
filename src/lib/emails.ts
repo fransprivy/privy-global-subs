@@ -45,7 +45,7 @@ export interface EmailTemplateMeta {
   trigger: string;
   timing: string;
   legal: string;
-  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Indonesia" | "Workspaces" | "Other";
+  group: "Lifecycle" | "Renewal" | "Dunning" | "Changes" | "Migration" | "Indonesia" | "Workspaces" | "Vouchers" | "Other";
 }
 
 export interface RenderedEmail {
@@ -71,13 +71,13 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-13", name: "Cancellation confirmed", trigger: "Cancellation scheduled", timing: "Immediately", legal: "Yes: CA / UK confirmation of cancellation", group: "Lifecycle" },
   { id: "N-14", name: "Plan ended", trigger: "Cancelled subscription reached period end", timing: "At period end", legal: "Recommended", group: "Lifecycle" },
   { id: "N-15", name: "Welcome back", trigger: "Subscription resumed", timing: "Immediately", legal: "Recommended", group: "Lifecycle" },
-  { id: "N-16", name: "Workspace read-only (members)", trigger: "Business plan ending: workspace becomes read-only for members", timing: "At scheduling and at effective date", legal: "No", group: "Changes" },
+  { id: "N-16", name: "Workspace read-only (members)", trigger: "Pro plan ending: workspace becomes read-only for members", timing: "At scheduling and at effective date", legal: "No", group: "Changes" },
   { id: "N-17", name: "Turn on auto-renewal", trigger: "Migration opt-in series for prepaid users", timing: "Go-live, T-30, T-7, T-1", legal: "Yes: terms change notice", group: "Migration" },
   { id: "N-18", name: "Payment dispute", trigger: "Chargeback opened", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-19", name: "Price change notice", trigger: "Price change", timing: "30 days before first renewal at new price", legal: "Yes", group: "Other" },
   { id: "N-20", name: "Prepaid plan ended", trigger: "Prepaid time ended without opt-in", timing: "At prepaid end", legal: "No", group: "Migration" },
   { id: "N-21", name: "Payment method updated", trigger: "Default card replaced or changed", timing: "Immediately", legal: "No (added: UX-19)", group: "Other" },
-  { id: "N-22", name: "Seats changed", trigger: "Business seats added (prorated charge) or reduction scheduled", timing: "Immediately", legal: "Receipt expected when charged", group: "Changes" },
+  { id: "N-22", name: "Seats changed", trigger: "Pro seats added (prorated charge) or reduction scheduled", timing: "Immediately", legal: "Receipt expected when charged", group: "Changes" },
   { id: "N-23", name: "Backup card charged", trigger: "Default card declined, a backup card succeeded", timing: "Immediately after the charge", legal: "Recommended (transparency on which card was used)", group: "Renewal" },
   { id: "N-24", name: "Backup card added", trigger: "A backup card was saved", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-30", name: "Bill issued (one-time plan)", trigger: "Indonesia one-time plan, 7 days before expiry", timing: "T-7", legal: "Recommended", group: "Indonesia" },
@@ -85,6 +85,8 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-31", name: "Plan expired (one-time)", trigger: "Bill not paid by the expiry date", timing: "At expiry, no grace", legal: "Recommended", group: "Indonesia" },
   { id: "N-35", name: "You are the new owner: set up payment", trigger: "Ownership transferred to this member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
   { id: "N-36", name: "Ownership transferred (old owner)", trigger: "Owner handed the workspace to a member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
+  { id: "N-40", name: "Voucher redeemed", trigger: "Voucher code claimed successfully", timing: "Immediately", legal: "Recommended: states the end date and that nothing is charged", group: "Vouchers" },
+  { id: "N-41", name: "Free period ended", trigger: "Voucher benefit reached its end date", timing: "At the end date", legal: "Recommended", group: "Vouchers" },
   { id: "N-32", name: "Payment received (one-time)", trigger: "Payment ID paid via QRIS / VA / card", timing: "Immediately", legal: "Receipt expected", group: "Indonesia" },
   { id: "N-33", name: "Payment ID expired", trigger: "Payment ID not paid within 2 hours", timing: "At expiry of the Payment ID", legal: "No", group: "Indonesia" },
   { id: "N-34", name: "Auto-renewal turned on", trigger: "One-time user converted to auto-renewal", timing: "Immediately", legal: "Yes: express consent to recurring charge", group: "Indonesia" },
@@ -170,7 +172,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         body: [
           `We still could not charge card ending ${c.last4}. You have ${c.daysLeft} days of access left.`,
           c.isBusiness
-            ? `Because ${c.workspaceName} is a Business workspace, please hand over team documents before ${c.graceEnd} if you do not plan to continue.`
+            ? `Because ${c.workspaceName} is a Pro workspace, please hand over team documents before ${c.graceEnd} if you do not plan to continue.`
             : `Your documents are safe either way.`,
         ],
         cta: { label: "Update payment method", href: "/settings/billing/payment-method" },
@@ -193,7 +195,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
             ? `${c.workspaceName} is now read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"}: envelopes can be viewed and downloaded, not signed or sent. Reactivate any time, or hand the documents over to your Individual workspace.`
             : `Resubscribe any time to get your plan back.`,
         ],
-        cta: { label: c.isBusiness ? "Reactivate Business" : "See plans", href: c.isBusiness ? "/settings/billing" : "/plans" },
+        cta: { label: c.isBusiness ? "Reactivate Pro" : "See plans", href: c.isBusiness ? "/settings/billing" : "/plans" },
       };
     case "N-10":
       return {
@@ -226,7 +228,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         subject: `You are now on Privy ${c.newPlanName}`,
         body: [
           `Your scheduled change took effect. We charged ${c.newAmount} for the new period; next renewal ${c.nextDate}.`,
-          c.isBusiness ? `${c.workspaceName} is now read-only for your team: envelopes can be viewed and downloaded. Reactivate Business any time.` : `Your envelope allowance is now the ${c.newPlanName} allowance.`,
+          c.isBusiness ? `${c.workspaceName} is now read-only for your team: envelopes can be viewed and downloaded. Reactivate Pro any time.` : `Your envelope allowance is now the ${c.newPlanName} allowance.`,
         ],
         cta: { label: "View plan settings", href: planPage },
       };
@@ -255,7 +257,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       return {
         subject: `${c.workspaceName} becomes read-only on ${c.effectiveDate}`,
         body: [
-          `The Business plan for ${c.workspaceName} ends on ${c.effectiveDate}. From then the workspace is read-only: you can still open and download envelopes, but not sign, send or upload.`,
+          `The Pro plan for ${c.workspaceName} ends on ${c.effectiveDate}. From then the workspace is read-only: you can still open and download envelopes, but not sign, send or upload.`,
           `Your own Privy plan is not affected. The owner can reactivate the plan at any time.`,
         ],
       };
@@ -299,7 +301,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-22":
       return c.seatsDelta > 0
         ? {
-            subject: `${c.seatsDelta} seat${c.seatsDelta === 1 ? "" : "s"} added to your Privy Business workspace`,
+            subject: `${c.seatsDelta} seat${c.seatsDelta === 1 ? "" : "s"} added to your Privy Pro workspace`,
             body: [
               `We charged ${c.proratedAmount} today for the rest of your current billing period. Your workspace now has ${c.seatsTotal} seats and keeps the same renewal date.`,
               `From ${c.nextDate} your renewal is ${c.newAmount} per ${c.intervalWord}. Invoice ${c.invoiceNumber} is attached.`,
@@ -345,13 +347,34 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         body: [`The bill was not paid by ${c.prepaidEnd}, so your account is now on the Free plan. Your documents are safe. You can buy a new period any time.${c.isBusiness && c.memberCount > 0 ? ` ${c.workspaceName} is read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"} until you reactivate.` : ""}`],
         cta: { label: "Buy a plan", href: "/plans" },
       };
+    case "N-40":
+      return {
+        subject: `Your free Privy ${c.tierLabel} is active until ${c.newEnd}`,
+        body: [
+          `Your voucher is claimed. You have Privy ${c.tierLabel} free for ${c.daysLeft} months, until ${c.newEnd}.`,
+          `We did not ask for a card, so nothing can be charged. On ${c.newEnd} your account returns to the Free plan by itself and your documents stay with you.`,
+          `Want to keep ${c.tierLabel} afterwards? You can subscribe any time from Plan settings.`,
+        ],
+        cta: { label: "View plan settings", href: planPage },
+      };
+    case "N-41":
+      return {
+        subject: `Your free Privy ${c.tierLabel} period has ended`,
+        body: [
+          `Your free ${c.tierLabel} period ended on ${c.prepaidEnd}. Your account is now on the Free plan and nothing was charged.`,
+          c.isBusiness
+            ? `${c.workspaceName} is now read-only: envelopes can be viewed, downloaded and handed over. Subscribe to Pro to sign and send there again.`
+            : `Your documents are safe. Free includes 5 envelopes a month.`,
+        ],
+        cta: { label: "See plans", href: "/plans" },
+      };
     case "N-35":
       return {
         subject: `You now own ${c.workspaceName} on Privy: add a payment method before ${c.nextDate}`,
         body: [
           `${c.name} transferred ownership of ${c.workspaceName} to you. The current paid period runs until ${c.nextDate}; nothing changes for members until then.`,
           `To keep the workspace running after ${c.nextDate}, add a card (or, in Indonesia, pay the next bill). If no payment method is set up by then, the workspace becomes read-only until it is reactivated.`,
-          `As the owner, your Individual workspace now gets unlimited envelopes, included with Business.`,
+          `As the owner, your Individual workspace now gets unlimited envelopes, included with Pro.`,
         ],
         cta: { label: "Set up payment", href: "/settings/billing" },
       };

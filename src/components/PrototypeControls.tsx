@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { buildLabel } from "@/lib/build";
 import { regionMeta } from "@/lib/catalog";
-import { activeSubscription, activeWorkspaceId, allWorkspaces, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
-import { addDays, daysBetween, fmtDate, startOfDayUTC } from "@/lib/format";
-import { SCENARIOS } from "@/lib/scenarios";
+import { activeSubscription, activeWorkspaceId, ipLocked, isPromoUser, allWorkspaces, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
+import { addDays, daysBetween, fmtDate, fmtDateTime, startOfDayUTC } from "@/lib/format";
+import { DEVICE_MAC, DEVICE_PHONE, IP_HOME, IP_OFFICE, SCENARIOS } from "@/lib/scenarios";
 import { useAppState } from "@/lib/store";
 import type { CardBehavior, Region } from "@/lib/types";
 import { IconClose, IconMail, IconRefresh, IconSliders } from "./Icons";
@@ -40,6 +40,7 @@ export function PrototypeControls() {
     if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "scheduled change" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
     if (pe && isOneTimeUser(s) && !bill && daysBetween(today, pe) > CONFIG.billLeadDays) return { label: `bill day (${fmtDate(addDays(pe, -CONFIG.billLeadDays))})`, iso: addDays(pe, -CONFIG.billLeadDays) };
     if (pe && isOneTimeUser(s)) return { label: `plan expiry (${fmtDate(pe)})`, iso: pe };
+    if (pe && isPromoUser(s)) return { label: `end of free period (${fmtDate(pe)})`, iso: pe };
     if (pe) return { label: `end of prepaid time (${fmtDate(pe)})`, iso: pe };
     return null;
   })();
@@ -91,7 +92,7 @@ export function PrototypeControls() {
             <select className="input" value={activeWorkspaceId(s)} onChange={(e) => api.switchWorkspace(e.target.value)}>
               {allWorkspaces(s).map((w) => (
                 <option key={w.id} value={w.id}>
-                  {w.name} · {w.kind === "individual" ? "Individual" : w.kind === "business" ? "Business" : "Enterprise"}
+                  {w.name} · {w.kind === "individual" ? "Individual" : w.kind === "business" ? "Pro" : "Enterprise"}
                   {w.role === "member" ? " (member)" : ""}
                   {w.status === "expired" ? " · expired" : ""}
                 </option>
@@ -153,6 +154,88 @@ export function PrototypeControls() {
               </div>
               <p className="mt-1 text-xs text-muted">
                 {pending ? `Open: ${pending.payment?.paymentId} for ${pending.payment?.method.toUpperCase()}${pending.payment?.bank ? ` ${pending.payment.bank}` : ""}. "Received" is what the payment gateway webhook would send.` : bill ? `Bill ${bill.id} is waiting; open it from Billing to create a Payment ID.` : "No Payment ID open. Bills appear 7 days before a one-time plan expires."}
+              </p>
+            </Section>
+          )}
+
+          {s.vouchers && (
+            <Section title="Voucher codes">
+              <div className="max-h-[260px] space-y-1.5 overflow-y-auto pr-1">
+                {s.vouchers.codes.map((c) => {
+                  const expired = s.now >= c.redeemBy;
+                  const full = c.used >= c.maxRedemptions;
+                  return (
+                    <div key={c.id} className="rounded-lg border border-line px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          className="truncate font-mono text-xs font-semibold text-ink hover:underline"
+                          title="Copy code"
+                          onClick={() => navigator.clipboard?.writeText(c.code).catch(() => {})}
+                        >
+                          {c.code}
+                        </button>
+                        <button
+                          onClick={() => api.toggleVoucherPause(c.id)}
+                          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${c.status === "active" ? "border-[#b7dfc4] bg-success-tint text-success" : "border-line-2 bg-page text-muted"}`}
+                          aria-label={`${c.status === "active" ? "Pause" : "Resume"} ${c.code}`}
+                        >
+                          {c.status === "active" ? "Active" : "Paused"}
+                        </button>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        {c.tier === "business" ? "Pro" : "Personal"} · {c.months} mo · {c.regions.join(", ")} · {c.maxRedemptions === 1 ? "unique" : "shared"} · {c.used} of {c.maxRedemptions} used
+                        {full ? " · full" : ""}
+                        {expired ? ` · expired ${fmtDate(c.redeemBy)}` : ` · until ${fmtDate(c.redeemBy)}`}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-page">
+                          <div className={`h-full ${full ? "bg-danger" : "bg-ink"}`} style={{ width: `${Math.min(100, (c.used / c.maxRedemptions) * 100)}%` }} />
+                        </div>
+                        {c.maxRedemptions > 1 && !full && (
+                          <button className="text-[11px] text-info underline" onClick={() => api.simulateLastSlot(c.id)} title="Fills the quota to one slot left, then fires 50 claims at once">
+                            50 claims on last slot
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="text-[11px] text-muted">
+                  Device
+                  <select className="input mt-0.5 !py-1.5 text-xs" value={s.vouchers.deviceId} onChange={(e) => api.setVoucherClient({ deviceId: e.target.value })}>
+                    <option value={DEVICE_MAC}>MacBook</option>
+                    <option value={DEVICE_PHONE}>iPhone</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-muted">
+                  Network (IP)
+                  <select className="input mt-0.5 !py-1.5 text-xs" value={s.vouchers.ip} onChange={(e) => api.setVoucherClient({ ip: e.target.value })}>
+                    <option value={IP_HOME}>Home · {IP_HOME}</option>
+                    <option value={IP_OFFICE}>Office · {IP_OFFICE}</option>
+                  </select>
+                </label>
+              </div>
+              <label className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+                <input type="checkbox" className="accent-brand" checked={s.user.emailVerified !== false} onChange={(e) => api.setEmailVerified(e.target.checked)} />
+                Email is verified
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.advanceMinutes(15)}>
+                  +15 min
+                </button>
+                <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.addIpFailures(20)} title="Other accounts guessing codes from this network">
+                  20 wrong guesses from this IP
+                </button>
+                <Link href="/prototype/voucher-log" className="btn-secondary !py-1.5 text-xs">
+                  Audit log ({s.vouchers.audit.length})
+                </Link>
+              </div>
+              <p className="mt-1 text-xs text-muted">
+                Clock: {fmtDateTime(s.now)}.
+                {s.vouchers.accountLockUntil && s.vouchers.accountLockUntil > s.now ? ` Account locked until ${fmtDateTime(s.vouchers.accountLockUntil)}.` : ""}
+                {ipLocked(s) ? ` This IP is locked until ${fmtDateTime(s.vouchers.ipLockUntil!)}.` : ""} Codes ignore case, spaces and dashes.
               </p>
             </Section>
           )}

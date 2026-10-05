@@ -47,6 +47,14 @@ interface StoreApi {
   sendEnvelope: () => boolean;
   useUpQuota: () => void;
   transferOwnership: (memberId: string) => void;
+  redeemVoucher: (code: string) => E.VoucherResult;
+  subscribeAfterPromo: (card: Card, consentText: string, tier: PaidTier, interval: Interval, seats: number) => void;
+  setVoucherClient: (patch: { deviceId?: string; ip?: string }) => void;
+  setEmailVerified: (verified: boolean) => void;
+  toggleVoucherPause: (codeId: string) => void;
+  addIpFailures: (n: number) => void;
+  simulateLastSlot: (codeId: string) => void;
+  advanceMinutes: (min: number) => void;
   handoverSelected: (ids: string[], dest: E.HandoverDestination) => void;
   deleteWorkspace: (handoverFirst: boolean) => void;
   setMemberRole: (id: string, role: "admin" | "member") => void;
@@ -77,7 +85,7 @@ function load(): AppState | null {
     if (!parsed.region) parsed.region = "AU";
     if (!parsed.bills) parsed.bills = [];
     // Workspace model (v3 states saved before it existed): the scenario seed is the safest source, so reload it.
-    if (!parsed.workspace.status || !parsed.otherWorkspaces) return null;
+    if (!parsed.workspace.status || !parsed.otherWorkspaces || !parsed.vouchers) return null;
     return parsed;
   } catch {
     return null;
@@ -191,6 +199,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       useUpQuota: () => update((s) => E.useUpQuota(s)),
       transferOwnership: (memberId) => update((s) => E.transferOwnership(s, memberId)),
+      redeemVoucher: (code) => {
+        const cur = stateRef.current;
+        if (!cur) return { ok: false, reason: "UNKNOWN", message: "" };
+        const r = E.redeemVoucher(cur, code);
+        stateRef.current = r.state;
+        update(() => r.state);
+        return r.result;
+      },
+      subscribeAfterPromo: (card, consentText, tier, interval, seats) => update((s) => E.subscribeAfterPromo(s, card, consentText, tier, interval, seats)),
+      setVoucherClient: (patch) => update((s) => E.setVoucherClient(s, patch)),
+      setEmailVerified: (verified) => update((s) => E.setEmailVerified(s, verified)),
+      toggleVoucherPause: (codeId) => update((s) => E.toggleVoucherPause(s, codeId)),
+      addIpFailures: (n) => update((s) => E.addIpFailures(s, n)),
+      simulateLastSlot: (codeId) => update((s) => E.simulateLastSlot(s, codeId)),
+      advanceMinutes: (min) => update((s) => E.advanceMinutes(s, min)),
       handoverSelected: (ids, dest) => update((s) => E.handoverSelected(s, ids, dest)),
       deleteWorkspace: (handoverFirst) => update((s) => E.deleteWorkspace(s, handoverFirst)),
       setMemberRole: (id, role) => update((s) => E.setMemberRole(s, id, role)),

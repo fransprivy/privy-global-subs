@@ -38,7 +38,7 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center gap-2 text-[15px]">
               <span className="text-white/85">Workspace:</span>
               <span className="rounded-md bg-white/90 px-2.5 py-1 text-sm font-semibold text-ink-2">
-                {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}
+                {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Pro" : "Enterprise"}
               </span>
               <span className={`rounded-md px-2.5 py-1 text-sm font-semibold ${ws.status === "expired" ? "bg-[#ffd5d5] text-danger" : "bg-white/20 text-white"}`}>{ws.planLabel}</span>
               <Spec id="R-77" />

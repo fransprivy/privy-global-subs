@@ -1,7 +1,7 @@
 import { setActiveRegion } from "./catalog";
-import { planPrice } from "./engine";
+import { ACCOUNT_ID, DEFAULT_VOUCHER_CONFIG, planPrice } from "./engine";
 import { invoiceNumber } from "./format";
-import type { AppState, Bill, Card, Interval, Invoice, OtherWorkspace, PaidTier, Region, Subscription, Task, Workspace } from "./types";
+import type { AppState, Bill, Card, Interval, Invoice, OtherWorkspace, PaidTier, Region, Subscription, Task, VoucherCode, VoucherRedemption, VoucherState, Workspace } from "./types";
 
 export const NOW = "2026-09-10T09:00:00.000Z";
 
@@ -10,7 +10,7 @@ export interface ScenarioMeta {
   title: string;
   persona: string;
   description: string;
-  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia" | "Workspaces";
+  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia" | "Workspaces" | "Vouchers";
 }
 
 export const SCENARIOS: ScenarioMeta[] = [
@@ -18,7 +18,7 @@ export const SCENARIOS: ScenarioMeta[] = [
     id: "free",
     title: "Free user",
     persona: "Frans, Free plan, 1 of 5 envelopes used",
-    description: "The starting point from the screenshots. No card on file. Subscribe to Personal or Business from the plan page.",
+    description: "The starting point from the screenshots. No card on file. Subscribe to Personal or Pro from the plan page.",
     tag: "Start here",
   },
   {
@@ -37,9 +37,9 @@ export const SCENARIOS: ScenarioMeta[] = [
   },
   {
     id: "business-owner",
-    title: "Business owner, 8 seats",
-    persona: "Frans, owner of 'Privy Product Team' (Business Monthly × 8 seats, 6 in use), Visa default + Mastercard backup",
-    description: "Owns a Business workspace and gets the owner perk in the Individual workspace (Personal with unlimited envelopes). Switch workspaces from the avatar menu, invite members, add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
+    title: "Pro owner, 8 seats",
+    persona: "Frans, owner of 'Privy Product Team' (Pro Monthly × 8 seats, 6 in use), Visa default + Mastercard backup",
+    description: "Owns a Pro workspace and gets the owner perk in the Individual workspace (Personal with unlimited envelopes). Switch workspaces from the avatar menu, invite members, add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
     tag: "Downgrade",
   },
   {
@@ -52,7 +52,7 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "pending-downgrade",
     title: "Downgrade scheduled",
-    persona: "Frans, Business Monthly × 3, changing to Personal Monthly on 1 Oct",
+    persona: "Frans, Pro Monthly × 3, changing to Personal Monthly on 1 Oct",
     description: "A scheduled change waiting to take effect. Shows the pending banner with undo, and what happens on the effective date.",
     tag: "Downgrade",
   },
@@ -72,7 +72,7 @@ export const SCENARIOS: ScenarioMeta[] = [
   },
   {
     id: "business-member-free",
-    title: "Member of someone else's Business",
+    title: "Member of someone else's Pro",
     persona: "Frans, Free individual, member of 'Hartono Legal Partners' (owned by Kenny)",
     description: "Being a member never changes your own plan: the Individual workspace stays Free with 5 envelopes. In Kenny's workspace, envelopes are unlimited and billing is managed by the owner.",
     tag: "Workspaces",
@@ -80,14 +80,14 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "business-member-personal",
     title: "Personal subscriber who is also a member",
-    persona: "Frans, Personal Monthly (3 of 50 envelopes left), admin in Kenny's Business (plan ending 1 Oct) and member of PT Privy (Demo) Enterprise",
-    description: "Own Personal plan keeps its 50-envelope limit; send 3 more and the paywall appears. Kenny cancelled his Business plan, so his workspace warns members it turns read-only on Oct 1. Buying Business here creates your own workspace and unlocks unlimited envelopes for you.",
+    persona: "Frans, Personal Monthly (3 of 50 envelopes left), admin in Kenny's Pro (plan ending 1 Oct) and member of PT Privy (Demo) Enterprise",
+    description: "Own Personal plan keeps its 50-envelope limit; send 3 more and the paywall appears. Kenny cancelled his Pro plan, so his workspace warns members it turns read-only on Oct 1. Buying Pro here creates your own workspace and unlocks unlimited envelopes for you.",
     tag: "Workspaces",
   },
   {
     id: "business-expired",
-    title: "Expired Business workspace (owner)",
-    persona: "Frans, Business Monthly ended 1 Sep after the grace period, 'Privy Product Team' is read-only",
+    title: "Expired Pro workspace (owner)",
+    persona: "Frans, Pro Monthly ended 1 Sep after the grace period, 'Privy Product Team' is read-only",
     description: "The workspace still exists: envelopes can be viewed and downloaded, nothing can be signed or sent, members see the same. Hand the documents over to your Individual workspace, or reactivate the plan.",
     tag: "Workspaces",
   },
@@ -97,6 +97,34 @@ export const SCENARIOS: ScenarioMeta[] = [
     persona: "Frans, Free individual, member of PT Privy (Demo) Enterprise and of the expired 'PT Privy Demo May 2026'",
     description: "The switcher from production: Individual plus Enterprise workspaces. Enterprise has no self-serve billing; the expired one is read-only with a contact-sales notice.",
     tag: "Workspaces",
+  },
+  {
+    id: "voucher-free",
+    title: "Voucher: eligible Free user",
+    persona: "Frans, Free plan, region Australia, verified email",
+    description: "Claim AU-PERSONAL-3M from the plan page: Personal free for 3 months, no card, back to Free by itself. Then try a second code, buy a plan mid-promo (start now or when the free period ends) and jump to the end date.",
+    tag: "Vouchers",
+  },
+  {
+    id: "voucher-rejections",
+    title: "Voucher: guardrails and rejections",
+    persona: "Frans, Free plan, email not verified, on a device that already claimed this campaign",
+    description: "Walk through every rejection: unknown and paused (same generic message), expired, wrong region, email verification, device and IP velocity, the 5-attempt lock, fully redeemed, and the last-slot concurrency test.",
+    tag: "Vouchers",
+  },
+  {
+    id: "voucher-active",
+    title: "Voucher: free Personal, 6 days left",
+    persona: "Frans, Personal free until 16 Sep from AU-PERSONAL-3M, no card on file",
+    description: "What a promo user sees: remaining time on Billing, nothing in payment methods, and the two ways to keep the plan. Let it run out to see the automatic return to Free with no charge.",
+    tag: "Vouchers",
+  },
+  {
+    id: "voucher-pro",
+    title: "Voucher: free Pro workspace",
+    persona: "Frans, Pro free until 1 Nov from a unique code, workspace 'Frans's team' with 1 seat",
+    description: "A Pro voucher creates the Pro workspace with the owner's seat and unlimited envelopes in both workspaces. At the end date the workspace becomes read-only unless Pro is bought.",
+    tag: "Vouchers",
   },
   {
     id: "id-free",
@@ -114,8 +142,8 @@ export const SCENARIOS: ScenarioMeta[] = [
   },
   {
     id: "id-onetime-qris",
-    title: "Indonesia: Business paid by QRIS, expires in 2 days",
-    persona: "Frans, Business Monthly × 3 seats paid once via QRIS, active until 12 Sep",
+    title: "Indonesia: Pro paid by QRIS, expires in 2 days",
+    persona: "Frans, Pro Monthly × 3 seats paid once via QRIS, active until 12 Sep",
     description: "Reminder emails went out at T-3. No auto-renewal offer on the banner (not a card payer), but it is still findable under Billing › Payment methods. Let it expire to see the workspace close on the expiry date.",
     tag: "Indonesia",
   },
@@ -230,6 +258,43 @@ const VISA: Card = { id: "card_visa4242", brand: "visa", last4: "4242", expMonth
 const SOFT_VISA: Card = { id: "card_visa9995", brand: "visa", last4: "9995", expMonth: 11, expYear: 2027, behavior: "soft_decline", addedAt: "2026-07-03T09:00:00.000Z" };
 const MASTERCARD: Card = { id: "card_mc4444", brand: "mastercard", last4: "4444", expMonth: 6, expYear: 2028, behavior: "success", addedAt: "2026-08-15T09:00:00.000Z" };
 
+/* Voucher seed: campaign AU-LAUNCH-2026 (one shared Personal code, five unique Pro codes) plus codes that show each rejection. */
+export const DEVICE_MAC = "dev-frans-macbook";
+export const DEVICE_PHONE = "dev-frans-iphone";
+export const IP_HOME = "203.0.113.24";
+export const IP_OFFICE = "198.51.100.7";
+function vcode(id: string, code: string, campaign: string, tier: PaidTier, months: number, regions: Region[], max: number, used: number, redeemBy: string, option: "A" | "B", status: "active" | "paused" = "active"): VoucherCode {
+  return { id, code, campaign, tier, months, regions, maxRedemptions: max, used, redeemBy, status, option };
+}
+function seedVouchers(extraRedemptions: VoucherRedemption[] = []): VoucherState {
+  const by = "2026-11-30T13:00:00.000Z";
+  const codes: VoucherCode[] = [
+    vcode("vc_personal", "AU-PERSONAL-3M", "AU-LAUNCH-2026", "personal", 3, ["AU"], 300, 212, by, "B"),
+    vcode("vc_pro1", "7K2M9XQ4HT", "AU-LAUNCH-2026", "business", 3, ["AU"], 1, 0, by, "A"),
+    vcode("vc_pro2", "B8R3NW6YD5", "AU-LAUNCH-2026", "business", 3, ["AU"], 1, 0, by, "A"),
+    vcode("vc_pro3", "T4VC9G2KP7", "AU-LAUNCH-2026", "business", 3, ["AU"], 1, 0, by, "A"),
+    vcode("vc_pro4", "M6HX3Q8ZJ2", "AU-LAUNCH-2026", "business", 3, ["AU"], 1, 0, by, "A"),
+    vcode("vc_pro5", "W9D5R7B4NK", "AU-LAUNCH-2026", "business", 3, ["AU"], 1, 1, by, "A"),
+    vcode("vc_early", "AU-EARLY-1M", "AU-EARLY-2026", "personal", 1, ["AU"], 100, 37, "2026-08-31T14:00:00.000Z", "B"),
+    vcode("vc_leaked", "AU-PARTNER-3M", "AU-PARTNER-2026", "personal", 3, ["AU"], 200, 64, by, "B", "paused"),
+    vcode("vc_id", "ID-PERSONAL-1M", "ID-PILOT-2026", "personal", 1, ["ID"], 500, 120, by, "B"),
+  ];
+  const redemptions: VoucherRedemption[] = [
+    ...extraRedemptions,
+    { id: "rd_seed1", codeId: "vc_pro5", campaign: "AU-LAUNCH-2026", accountId: "acc_mia", at: "2026-09-08T03:10:00.000Z", ip: "192.0.2.61", deviceId: "dev-mia-pixel", endsAt: "2026-12-08T00:00:00.000Z" },
+  ];
+  return {
+    codes,
+    redemptions,
+    audit: redemptions.map((r, i) => ({ id: `au_seed${i}`, at: r.at, codeId: r.codeId, codeEntered: codes.find((c) => c.id === r.codeId)!.code, campaign: r.campaign, accountId: r.accountId, email: `${r.accountId.replace("acc_", "")}@example.com`, region: "AU" as Region, ip: r.ip, deviceId: r.deviceId, result: "SUCCESS" as const, reason: "SUCCESS" as const })),
+    config: DEFAULT_VOUCHER_CONFIG,
+    deviceId: DEVICE_MAC,
+    ip: IP_HOME,
+    accountLockUntil: null,
+    ipLockUntil: null,
+  };
+}
+
 function baseState(scenarioId: string, region: Region = "AU"): AppState {
   return {
     version: 3,
@@ -238,7 +303,8 @@ function baseState(scenarioId: string, region: Region = "AU"): AppState {
     prefs: { timezone: region === "ID" ? "Asia/Jakarta (WIB, UTC+7)" : "auto", dateFormat: "dd MMM yyyy" },
     bills: [],
     now: NOW,
-    user: USER,
+    user: { ...USER, emailVerified: true },
+    vouchers: seedVouchers(),
     subscription: null,
     prepaid: null,
     card: null,
@@ -292,7 +358,7 @@ function paidInvoice(seq: number, date: string, tier: PaidTier, interval: Interv
     dueDate: date,
     amount,
     status,
-    description: `${tier === "personal" ? "Personal" : "Business"} ${interval === "monthly" ? "Monthly" : "Yearly"}${tier === "business" ? ` × ${seats} seats` : ""} · ${fmt(start)} to ${fmt(end)}`,
+    description: `${tier === "personal" ? "Personal" : "Pro"} ${interval === "monthly" ? "Monthly" : "Yearly"}${tier === "business" ? ` × ${seats} seats` : ""} · ${fmt(start)} to ${fmt(end)}`,
     periodStart: start,
     periodEnd: end,
   };
@@ -356,10 +422,10 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-07-01T09:00:00.000Z", "business", "monthly", 8, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
         ],
         history: [
-          { id: "h4", at: start, type: "renewed", title: "Business Monthly renewed", detail: "Charged A$308.00 for Sep 1, 2026 to Oct 1, 2026." },
+          { id: "h4", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$308.00 for Sep 1, 2026 to Oct 1, 2026." },
           { id: "h3", at: "2026-08-15T09:00:00.000Z", type: "card_added", title: "Backup card added", detail: "Mastercard ending 4444, expires 06/2028. Only charged if the default card is declined." },
-          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Business Monthly renewed", detail: "Charged A$308.00 for Aug 1, 2026 to Sep 1, 2026." },
-          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 8 seats", detail: "Charged A$308.00 to card ending 4242." },
+          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$308.00 for Aug 1, 2026 to Sep 1, 2026." },
+          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 8 seats", detail: "Charged A$308.00 to card ending 4242." },
         ],
         consents: [{ id: "c1", at: "2026-07-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$308.00 to my card every month starting today until I cancel.", amount: 308, interval: "monthly", ip: "103.28.114.20" }],
       };
@@ -436,11 +502,11 @@ export function buildScenario(id: string): AppState {
         ],
         history: [
           { id: "h3", at: "2026-09-08T10:00:00.000Z", type: "change_scheduled", title: "Downgrade to Personal Monthly scheduled for Oct 1, 2026", detail: "Nothing charged today. A$7.49 will be charged on Oct 1, 2026. You can undo until then." },
-          { id: "h2", at: start, type: "renewed", title: "Business Monthly renewed", detail: "Charged A$115.50 for Sep 1, 2026 to Oct 1, 2026." },
-          { id: "h1", at: "2026-08-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 3 seats" },
+          { id: "h2", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$115.50 for Sep 1, 2026 to Oct 1, 2026." },
+          { id: "h1", at: "2026-08-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 3 seats" },
         ],
         emails: [
-          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your plan change is scheduled for Oct 1, 2026", body: ["You keep Business Monthly until Oct 1, 2026. From then you are on Personal Monthly at A$7.49 per month.", "Changed your mind? Keep your current plan with one click."], cta: { label: "Keep my current plan", href: "/settings/billing?action=undo" } },
+          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your plan change is scheduled for Oct 1, 2026", body: ["You keep Pro Monthly until Oct 1, 2026. From then you are on Personal Monthly at A$7.49 per month.", "Changed your mind? Keep your current plan with one click."], cta: { label: "Keep my current plan", href: "/settings/billing?action=undo" } },
         ],
         consents: [{ id: "c1", at: "2026-08-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$115.50 to my card every month starting today until I cancel.", amount: 115.5, interval: "monthly", ip: "103.28.114.20" }],
       };
@@ -539,18 +605,65 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-06-18T09:00:00.000Z", "business", "monthly", 5, "2026-06-18T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h4", at: "2026-09-01T00:00:00.000Z", type: "workspace_expired", title: "Privy Product Team is now read-only", detail: "The Business plan ended on Sep 1, 2026. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to Free." },
-          { id: "h3", at: "2026-09-01T00:00:00.000Z", type: "ended", title: "Business Monthly ended: payment not received", detail: "Grace period of 14 days ended. Documents kept." },
+          { id: "h4", at: "2026-09-01T00:00:00.000Z", type: "workspace_expired", title: "Privy Product Team is now read-only", detail: "The Pro plan ended on Sep 1, 2026. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to Free." },
+          { id: "h3", at: "2026-09-01T00:00:00.000Z", type: "ended", title: "Pro Monthly ended: payment not received", detail: "Grace period of 14 days ended. Documents kept." },
           { id: "h2", at: "2026-08-18T00:05:00.000Z", type: "renewal_failed", title: "Renewal charge of A$192.50 failed", detail: "insufficient_funds. Retried on Aug 21, Aug 25 and Sep 1." },
-          { id: "h1", at: "2026-06-18T09:00:00.000Z", type: "subscribed", title: "Subscribed to Business Monthly × 5 seats" },
+          { id: "h1", at: "2026-06-18T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 5 seats" },
         ],
         emails: [
-          { id: "e1", templateId: "N-09", at: "2026-09-01T00:00:00.000Z", to: USER.email, subject: "Your Privy Business plan has ended", body: ["We could not collect A$192.50 during the 14-day grace period, so Business Monthly ended on Sep 1, 2026.", "Privy Product Team is now read-only: you and your 3 members can view and download envelopes but cannot sign or send. Reactivate any time, or hand the documents over to your Individual workspace."], cta: { label: "Reactivate Business", href: "/settings/billing" } },
+          { id: "e1", templateId: "N-09", at: "2026-09-01T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro plan has ended", body: ["We could not collect A$192.50 during the 14-day grace period, so Pro Monthly ended on Sep 1, 2026.", "Privy Product Team is now read-only: you and your 3 members can view and download envelopes but cannot sign or send. Reactivate any time, or hand the documents over to your Individual workspace."], cta: { label: "Reactivate Pro", href: "/settings/billing" } },
         ],
       };
     }
     case "enterprise-member":
       return { ...s, otherWorkspaces: [ENTERPRISE_ACTIVE, ENTERPRISE_EXPIRED] };
+    case "voucher-free":
+      return s;
+    case "voucher-rejections":
+      return {
+        ...s,
+        user: { ...s.user, emailVerified: false },
+        vouchers: seedVouchers([
+          // Another account already claimed this campaign on this MacBook (G12 device rule).
+          { id: "rd_dev", codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: "acc_frans_alt", at: "2026-09-09T22:40:00.000Z", ip: "192.0.2.90", deviceId: DEVICE_MAC, endsAt: "2026-12-09T00:00:00.000Z" },
+          // Five claims from the office network in the last 24 hours (G12 IP rule).
+          ...[1, 2, 3, 4, 5].map((n) => ({ id: `rd_ip${n}`, codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: `acc_office_${n}`, at: `2026-09-10T0${n}:15:00.000Z`, ip: IP_OFFICE, deviceId: `dev-office-${n}`, endsAt: "2026-12-10T00:00:00.000Z" })),
+        ]),
+      };
+    case "voucher-active": {
+      const start = "2026-06-16T00:00:00.000Z";
+      const end = "2026-09-16T00:00:00.000Z";
+      return {
+        ...s,
+        prepaid: { tier: "personal", source: "redeem", periods: [{ start, end, tier: "personal", interval: "monthly", purchasedAt: "2026-06-16T04:20:00.000Z", seats: 1, paidWithLabel: "Voucher AU-PERSONAL-3M", voucherCode: "AU-PERSONAL-3M", campaign: "AU-LAUNCH-2026" }] },
+        vouchers: seedVouchers([{ id: "rd_me", codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-06-16T04:20:00.000Z", ip: IP_HOME, deviceId: DEVICE_MAC, endsAt: end }]),
+        usage: { envelopesSent: 21, templates: 6, contacts: 30 },
+        history: [{ id: "h1", at: "2026-06-16T04:20:00.000Z", type: "voucher_redeemed", title: "Voucher AU-PERSONAL-3M redeemed: Personal free for 3 months", detail: "Free until Sep 16, 2026. No card on file, nothing will be charged. The account returns to Free on that date." }],
+        emails: [
+          { id: "e1", templateId: "N-40", at: "2026-06-16T04:20:00.000Z", to: USER.email, subject: "Your free Privy Personal is active until Sep 16, 2026", body: ["Your voucher is claimed. You have Privy Personal free for 3 months, until Sep 16, 2026.", "We did not ask for a card, so nothing can be charged. On Sep 16, 2026 your account returns to the Free plan by itself and your documents stay with you."], cta: { label: "View plan settings", href: "/settings/billing" } },
+        ],
+      };
+    }
+    case "voucher-pro": {
+      const start = "2026-08-01T00:00:00.000Z";
+      const end = "2026-11-01T00:00:00.000Z";
+      const w = workspace(true, 1);
+      return {
+        ...s,
+        workspace: { ...w, name: "Frans's team", automations: 0, retentionPolicies: 0, trustedDomain: null, createdAt: "2026-08-01T05:00:00.000Z", documents: BUSINESS_DOCS.filter((d) => d.from === "Frans"), usage: { envelopesSent: 14, templates: 3, contacts: 22 } },
+        activeWorkspace: "business",
+        prepaid: { tier: "business", source: "redeem", periods: [{ start, end, tier: "business", interval: "monthly", purchasedAt: "2026-08-01T05:00:00.000Z", seats: 1, paidWithLabel: "Voucher 7K2M9XQ4HT", voucherCode: "7K2M9XQ4HT", campaign: "AU-LAUNCH-2026" }] },
+        vouchers: (() => {
+          const v = seedVouchers([{ id: "rd_me", codeId: "vc_pro1", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-08-01T05:00:00.000Z", ip: IP_HOME, deviceId: DEVICE_MAC, endsAt: end }]);
+          return { ...v, codes: v.codes.map((c) => (c.id === "vc_pro1" ? { ...c, used: 1 } : c)) };
+        })(),
+        usage: { envelopesSent: 8, templates: 2, contacts: 12 },
+        history: [
+          { id: "h2", at: "2026-08-01T05:00:00.000Z", type: "workspace_created", title: "Pro workspace \"Frans's team\" created", detail: "You are the owner. Your Individual workspace now has unlimited envelopes (Personal, included with Pro)." },
+          { id: "h1", at: "2026-08-01T05:00:00.000Z", type: "voucher_redeemed", title: "Voucher 7K2M9XQ4HT redeemed: Pro free for 3 months", detail: "Free until Nov 1, 2026. No card on file, nothing will be charged. The account returns to Free on that date." },
+        ],
+      };
+    }
     case "id-free":
       return s;
     case "id-onetime-card": {
@@ -591,12 +704,12 @@ export function buildScenario(id: string): AppState {
         usage: { envelopesSent: 41, templates: 8, contacts: 62 },
         invoices: [{ ...paidInvoice(1, "2026-08-12T09:00:00.000Z", "business", "monthly", 3, start, end), method: "QRIS" }],
         history: [
-          { id: "h2", at: "2026-09-05T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Business Monthly for Sep 12, 2026 to Oct 12, 2026", detail: "Rp 297,000, pay before Sep 12, 2026 to continue without interruption. No automatic charge." },
-          { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "Paid Business Monthly × 3 seats (one-time)", detail: "Rp 297,000 by QRIS. Active Aug 12, 2026 to Sep 12, 2026." },
+          { id: "h2", at: "2026-09-05T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Pro Monthly for Sep 12, 2026 to Oct 12, 2026", detail: "Rp 297,000, pay before Sep 12, 2026 to continue without interruption. No automatic charge." },
+          { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "Paid Pro Monthly × 3 seats (one-time)", detail: "Rp 297,000 by QRIS. Active Aug 12, 2026 to Sep 12, 2026." },
         ],
         emails: [
-          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left to pay your Privy bill", body: ["Your Business Monthly plan ends on Sep 12, 2026 unless the Rp 297,000 bill is paid before then.", "Pay with QRIS, card or virtual account. There is no grace period for one-time plans."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
-          { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Business Monthly bill: pay by Sep 12, 2026", body: ["Your plan is active until Sep 12, 2026. To keep it running to Oct 12, 2026, pay Rp 297,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 12, 2026 and the workspace is closed."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left to pay your Privy bill", body: ["Your Pro Monthly plan ends on Sep 12, 2026 unless the Rp 297,000 bill is paid before then.", "Pay with QRIS, card or virtual account. There is no grace period for one-time plans."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+          { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro Monthly bill: pay by Sep 12, 2026", body: ["Your plan is active until Sep 12, 2026. To keep it running to Oct 12, 2026, pay Rp 297,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 12, 2026 and the workspace is closed."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
         ],
         sentKeys: [`N-30:${end}`, `N-30b:T3:${end}`],
       };

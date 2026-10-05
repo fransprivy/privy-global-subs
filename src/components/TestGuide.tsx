@@ -20,6 +20,7 @@ const TAG_STYLE: Record<string, string> = {
   Cancel: "bg-[#eeeeee] text-ink-2",
   Indonesia: "bg-[#fde8e8] text-[#b3261e]",
   Workspaces: "bg-[#e8e4f8] text-[#4b3aa3]",
+  Vouchers: "bg-[#e0f3ea] text-[#17694a]",
 };
 
 export const GUIDE_WIDTH = 360;

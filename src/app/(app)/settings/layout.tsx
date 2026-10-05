@@ -73,7 +73,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         <div className="hidden px-6 pt-6 lg:block">
           <p className="text-sm font-semibold text-ink-2">Current Workspace</p>
           <p className="text-sm text-ink">
-            {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Business" : "Enterprise"}
+            {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Pro" : "Enterprise"}
             {ws.status === "expired" ? " (expired)" : ""}
           </p>
         </div>

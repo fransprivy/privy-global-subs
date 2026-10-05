@@ -42,7 +42,7 @@ export function CheckoutDrawer({
   const [declineMsg, setDeclineMsg] = useState("");
   const [promoOpen, setPromoOpen] = useState(false);
   const [promo, setPromo] = useState("");
-  // First Business purchase creates the owned workspace (R-74). Reactivation keeps the existing name.
+  // First Pro purchase creates the owned workspace (R-74). Reactivation keeps the existing name.
   const [newWorkspace] = useState(() => tier === "business" && workspaceStatus(s) === "none");
   const [reactivating] = useState(() => tier === "business" && workspaceStatus(s) === "expired");
   const [workspaceName, setWorkspaceName] = useState(`${s.user.name}'s team`);
@@ -356,14 +356,14 @@ function ordinal(n: number): string {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-/** Shown on the first Business purchase: the Business workspace that gets created (R-74). */
+/** Shown on the first Pro purchase: the Pro workspace that gets created (R-74). */
 export function WorkspaceNameField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="mt-4 rounded-xl border border-line bg-page p-4">
-      <label className="block text-[15px] font-medium text-ink">Business workspace name</label>
+      <label className="block text-[15px] font-medium text-ink">Pro workspace name</label>
       <input className="input mt-2" value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Privy Product Team" maxLength={60} />
       <p className="mt-2 text-xs text-ink-2">
-        Business comes as a separate workspace for your team (invite members, delegate, automate). You keep your Individual workspace too, and it gets unlimited envelopes while your Business plan is active. <Spec id="R-73" />
+        Pro comes as a separate workspace for your team (invite members, delegate, automate). You keep your Individual workspace too, and it gets unlimited envelopes while your Pro plan is active. <Spec id="R-73" />
       </p>
     </div>
   );
