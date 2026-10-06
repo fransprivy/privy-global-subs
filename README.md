@@ -8,7 +8,7 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 
 ## Voucher codes (added 5 Oct 2026, revised 6 Oct 2026)
 
-Requirements and every message (English and Bahasa Indonesia) live in the doc "Redeem Voucher: Short Requirements"; tags V1 to V18 in the app refer to it. "Business" is called **Pro** everywhere in the UI, copy and emails (internal ids keep `business`). Vouchers apply to Personal and Pro. The prototype UI is English only.
+Requirements and every message (English and Bahasa Indonesia) live in the doc "Redeem Voucher: Short Requirements"; tags V1 to V22 in the app (V1 to V17 are the MVP, V18 to V22 the later phase) refer to it. "Business" is called **Pro** everywhere in the UI, copy and emails (internal ids keep `business`). Vouchers apply to Personal and Pro. The prototype UI is English only.
 
 - **Where**: plan page "Have a voucher code? Redeem it here", and "Redeem a voucher code" on Billing for Free accounts. The window (M-20) mirrors production: title, one field, "Claim".
 - **Benefit**: the plan free for N calendar months (month-end clamp), no card, no bill, never renewed. A Pro code creates the Pro workspace with 1 seat. On the end date the account returns to Free with no payment attempt (Pro workspace becomes read-only). Emails N-40 and N-41, banner B-11.

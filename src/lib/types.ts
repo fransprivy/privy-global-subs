@@ -97,7 +97,7 @@ export interface PrepaidPeriod {
   /** How this period was paid (Indonesia one-time purchases). Card payers are eligible to convert to auto-renewal. */
   paidWith?: PaymentMethodKind;
   paidWithLabel?: string;
-  /** Voucher benefit: the code and campaign that granted this period (V13). */
+  /** Voucher benefit: the code and campaign that granted this period (V12). */
   voucherCode?: string;
   campaign?: string;
 }

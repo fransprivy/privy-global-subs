@@ -621,7 +621,7 @@ export function buildScenario(id: string): AppState {
         ...s,
         user: { ...s.user, emailVerified: false },
         vouchers: seedVouchers([
-          // Five claims from the office network in the last 24 hours (V12).
+          // Five claims from the office network in the last 24 hours (V20).
           ...[1, 2, 3, 4, 5].map((n) => ({ id: `rd_ip${n}`, codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: `acc_office_${n}`, at: `2026-09-10T0${n}:15:00.000Z`, ip: IP_OFFICE, endsAt: "2026-12-10T00:00:00.000Z" })),
         ]),
       };

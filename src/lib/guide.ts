@@ -633,7 +633,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "Claim AU-PERSONAL-3M",
         do: "Type 'au personal 3m' (lower case, spaces instead of dashes) → Claim.",
         expect: "Case, spaces and dashes are ignored. Success: 'Personal is yours for 3 months', free until Dec 10, 2026 (3 calendar months). No card asked. Prototype panel → Voucher codes shows 213 of 300 used.",
-        refs: ["V1", "V4", "V13", "N-40"],
+        refs: ["V1", "V4", "V12", "N-40"],
         check: (s) => s.prepaid?.source === "redeem",
       },
       {
@@ -642,7 +642,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Settings → Billing.",
         expect: "Plan card: 'Free until Dec 10, 2026 · 91 days left', the voucher code, 'nothing will be charged'. No card, no bill, no invoice. The top bar counter now uses the Personal quota of 50 a month. Email N-40 in the Prototype panel → Emails.",
         href: "/settings/billing",
-        refs: ["V13", "N-40"],
+        refs: ["V12", "N-40"],
         check: (s, p) => s.prepaid?.source === "redeem" && p === "/settings/billing",
       },
       {
@@ -677,7 +677,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Reset the scenario and claim again. Path A: pick a plan → 'Start today and pay'. Path B: buy nothing and 'Jump to end of free period'.",
         expect: "Path A: charged today, the remaining free days end and are not credited (stated before you pay). Path B: the account returns to Free on Dec 10 with no payment attempt, banner 'Your free period has ended', email N-41, documents kept.",
         note: "Optional. Reset the scenario first.",
-        refs: ["V13", "B-11", "N-41"],
+        refs: ["V12", "B-11", "N-41"],
       },
     ],
   },
@@ -691,7 +691,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Plan page → Redeem it here. Try HELLO123, then AU-PARTNER-3M (a real code that is paused).",
         expect: "Both give 'This code can't be used. Check the code and try again.' A guesser cannot tell a real paused code from a wrong one. The audit log records UNKNOWN and PAUSED separately.",
         href: "/plans",
-        refs: ["V3", "V14"],
+        refs: ["V3", "V13"],
         check: (s) => !!s.vouchers?.audit.some((a) => a.reason === "PAUSED") && !!s.vouchers?.audit.some((a) => a.reason === "UNKNOWN" && a.accountId === "acc_frans"),
       },
       {
@@ -707,7 +707,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "Email must be verified",
         do: "Try W9D5R7B4NK. In the verify step enter 000000, then 999999, then click 'Resend code', then enter any other 6 digits → 'Verify and claim'.",
         expect: "The window switches to 'Verify your email first'; the voucher is not used up and this does not count as a failed attempt. 000000: 'That code is incorrect…'. 999999: 'That code has expired. Request a new one.' Resend: 'We sent a new code to …' (the 4th resend says 'You have requested too many codes…'). After verifying, the same claim continues by itself.",
-        refs: ["V10"],
+        refs: ["V18"],
         check: (s) => s.user.emailVerified !== false,
       },
       {
@@ -723,7 +723,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "Wait out the lock, then the per-network limit",
         do: "Prototype panel → '+15 min'. Set Network to Office. Try AU-PERSONAL-3M.",
         expect: "'This code can't be claimed from your network right now. Try again later or contact support.' Five accounts already claimed this promotion from the office network in the last 24 hours.",
-        refs: ["V12"],
+        refs: ["V20"],
         check: (s) => !!s.vouchers?.audit.some((a) => a.reason === "IP_LIMIT"),
       },
       {
@@ -746,7 +746,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "A valid claim still works: Pro code",
         do: "Try 7K2M9XQ4HT again.",
         expect: "'Pro is yours for 3 months'. A Pro workspace is created with 1 seat; the avatar menu now lists it. Quota is used only now, after every other check passed.",
-        refs: ["V1", "V4", "V16"],
+        refs: ["V1", "V4", "V15"],
         check: (s) => s.prepaid?.source === "redeem" && s.prepaid.tier === "business",
       },
       {
@@ -755,7 +755,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Reset the scenario. Prototype panel → '20 wrong guesses from this IP', then try any code. Open 'Audit log', filter by campaign and Export CSV.",
         expect: "'Too many attempts from your network. Try again in 60 minutes.' (switching Network lifts it, the lock belongs to that IP). The log lists every attempt with time, account, code, region, IP, result and reason, and exports to CSV.",
         href: "/prototype/voucher-log",
-        refs: ["V5", "V11"],
+        refs: ["V22", "V19"],
         check: (s, p) => p.startsWith("/prototype/voucher-log"),
       },
       {
@@ -778,7 +778,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Settings → Billing.",
         expect: "'Personal' with 'Free until Sep 16, 2026 · 6 days left', the voucher code and 'nothing will be charged'. Payment methods are empty and there is no bill. No renewal reminder banner.",
         href: "/settings/billing",
-        refs: ["V13"],
+        refs: ["V12"],
         check: (_s, p) => p === "/settings/billing",
       },
       {
@@ -795,7 +795,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "Let the free period end",
         do: "Prototype panel → 'Jump to end of free period (Sep 16, 2026)'.",
         expect: "The account is on Free. No charge, no invoice, no grace period. Banner 'Your free period has ended', email N-41, and Subscription history says nothing was charged. Envelopes are kept; the counter is back to 5 a month.",
-        refs: ["V13", "B-11", "N-41"],
+        refs: ["V12", "B-11", "N-41"],
         check: (s) => has(s, "promo_ended"),
       },
       {
@@ -819,7 +819,7 @@ export const GUIDES: Record<string, Guide> = {
         do: "Open the avatar menu, then Settings → Billing.",
         expect: "Workspace 'Frans's team' (Pro, owner) and Individual, both with unlimited envelopes. Billing: 'Pro' with 'Free until Nov 1, 2026', voucher 7K2M9XQ4HT, no card.",
         href: "/settings/billing",
-        refs: ["V4", "V13"],
+        refs: ["V4", "V12"],
         check: (_s, p) => p === "/settings/billing",
       },
       {
@@ -835,7 +835,7 @@ export const GUIDES: Record<string, Guide> = {
         title: "Let the free period end",
         do: "Prototype panel → 'Jump to end of free period (Nov 1, 2026)'.",
         expect: "'Frans's team' becomes read-only (view, download, hand over), the Individual workspace returns to Free, nothing is charged. Banner and email N-41 explain it; 'Reactivate Pro' is offered.",
-        refs: ["V13", "R-72", "N-41"],
+        refs: ["V12", "R-72", "N-41"],
         check: (s) => has(s, "promo_ended"),
       },
       {

@@ -458,7 +458,7 @@ function SubscriptionCard() {
     );
     footer = (
       <span className="text-ink-2">
-        From voucher <span className="font-mono text-ink">{promo.code}</span>. No card on file and nothing will be charged. Your account returns to the Free plan on <strong className="text-ink">{fmtDate(promo.until)}</strong>. <Spec id="V13" />
+        From voucher <span className="font-mono text-ink">{promo.code}</span>. No card on file and nothing will be charged. Your account returns to the Free plan on <strong className="text-ink">{fmtDate(promo.until)}</strong>. <Spec id="V12" />
       </span>
     );
     actions.push(

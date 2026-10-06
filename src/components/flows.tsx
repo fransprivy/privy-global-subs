@@ -1503,7 +1503,7 @@ function VoucherModal({ close }: { close: () => void }) {
           <div className="text-center">
             <h2 className="font-display text-[21px] font-semibold text-ink">Verify your email first</h2>
             <p className="mx-auto mt-1 max-w-[340px] text-sm text-ink-2">
-              We sent a 6-digit code to <strong className="text-ink">{s.user.maskedEmail}</strong>. Your voucher is saved and won&apos;t be used up while you verify. <Spec id="V10" />
+              We sent a 6-digit code to <strong className="text-ink">{s.user.maskedEmail}</strong>. Your voucher is saved and won&apos;t be used up while you verify. <Spec id="V18" />
             </p>
             <input
               className={`input mt-5 h-12 text-center font-mono text-lg tracking-[0.4em] ${otpError ? "!border-danger" : ""}`}

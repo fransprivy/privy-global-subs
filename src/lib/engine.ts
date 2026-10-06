@@ -944,7 +944,7 @@ export function runSweep(s: AppState): AppState {
   // Expire Payment IDs that ran out (a day has passed since they were generated).
   next = expireStalePayments(next);
 
-  // Voucher benefit: ends on its date, account returns to Free, nothing is charged (V13).
+  // Voucher benefit: ends on its date, account returns to Free, nothing is charged (V12).
   if (!activeSubscription(next) && next.prepaid?.source === "redeem") {
     const pe = prepaidEnd(next);
     if (pe && isSameOrAfter(next.now, pe)) next = expirePromo(next, pe);
@@ -1795,7 +1795,7 @@ function capitalize(t: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Voucher codes (requirements V1 to V18)                               */
+/* Voucher codes (requirements V1 to V22)                               */
 /* ------------------------------------------------------------------ */
 export const ACCOUNT_ID = "acc_frans";
 export const DEFAULT_VOUCHER_CONFIG: VoucherConfig = {
@@ -1949,7 +1949,7 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
   if (accountLocked(s)) return fail("RATE_LIMIT_ACCOUNT", VOUCHER_COPY.lockedAccount(minutesUntil(s.now, v.accountLockUntil!)), false);
   if (ipLocked(s)) return fail("RATE_LIMIT_IP", VOUCHER_COPY.lockedIp(minutesUntil(s.now, v.ipLockUntil!)), false);
 
-  // 2. Running voucher benefit (V9). The same code again returns the earlier success (V15).
+  // 2. Running voucher benefit (V9). The same code again returns the earlier success (V14).
   if (isPromoUser(s) || activeSubscription(s)?.promo) {
     const info = promoInfo(s);
     const mine = code ? v.redemptions.find((r) => r.accountId === ACCOUNT_ID && r.codeId === code.id && !isSameOrAfter(s.now, r.endsAt)) : undefined;
@@ -1959,7 +1959,7 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
   // 3. Free plan only (V8): a paid account always gets this message, whatever it types.
   if (currentTier(s) !== "free") return fail("NOT_FREE", VOUCHER_COPY.notFree(currentPlanName(s)), false);
 
-  // 4-5. Code exists and is active. Unknown and paused share one message (V14).
+  // 4-5. Code exists and is active. Unknown and paused share one message (V13).
   if (!code) return fail("UNKNOWN", VOUCHER_COPY.generic);
   if (code.status === "paused") return fail("PAUSED", VOUCHER_COPY.generic);
   // 6. Redeem-by date (V2)
@@ -1970,7 +1970,7 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
   if (s.user.emailVerified === false) return fail("EMAIL_UNVERIFIED", "Verify your email to claim this code.", false);
   // 9. Once per account per campaign (V7)
   if (v.redemptions.some((r) => r.accountId === ACCOUNT_ID && r.campaign === code.campaign)) return fail("ALREADY_IN_CAMPAIGN", VOUCHER_COPY.alreadyInCampaign);
-  // 10. Claims per IP per campaign (V12)
+  // 10. Claims per IP per campaign (V20)
   const dayAgo = addMinutes(s.now, -24 * 60);
   if (v.redemptions.filter((r) => r.campaign === code.campaign && r.ip === v.ip && r.at >= dayAgo).length >= v.config.ipPer24h) return fail("IP_LIMIT", VOUCHER_COPY.ipLimit);
   // 11. Quota (V1), checked last
@@ -2000,7 +2000,7 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
   return { state: next, result: { ok: true, reason: "SUCCESS", message: "Claimed.", tier: code.tier, months: code.months, endsAt: end } };
 }
 
-/** V13: the free period ended. Back to Free, no payment attempt. */
+/** V12: the free period ended. Back to Free, no payment attempt. */
 function expirePromo(s: AppState, pe: string): AppState {
   const tier = s.prepaid!.tier;
   const p = s.prepaid!.periods.find((x) => x.end === pe);

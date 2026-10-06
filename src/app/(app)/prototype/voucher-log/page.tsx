@@ -35,7 +35,7 @@ function toCsv(rows: VoucherAuditRow[]): string {
   return [head.join(","), ...rows.map((r) => [r.at, r.result, r.reason, r.codeEntered, r.codeId, r.campaign, r.accountId, r.email, r.region, r.ip].map(esc).join(","))].join("\n");
 }
 
-/** Internal view for the prototype: every voucher attempt, append-only (V5). */
+/** Internal view for the prototype: every voucher attempt, append-only (V22). */
 export default function VoucherLogPage() {
   const { s } = useAppState();
   const v = s.vouchers;
@@ -63,7 +63,7 @@ export default function VoucherLogPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold text-ink">
-            Voucher audit log <Spec id="V5" />
+            Voucher audit log <Spec id="V22" />
           </h1>
           <p className="text-sm text-muted">Every claim attempt, successful or not. Rows are only added, never changed. This is an internal view; users never see it.</p>
         </div>
