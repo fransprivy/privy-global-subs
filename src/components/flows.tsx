@@ -14,7 +14,9 @@ import {
   downgradeLosses,
   handoverOptions,
   isPromoUser,
+  monthsText,
   promoInfo,
+  VOUCHER_COPY,
   type HandoverDestination,
   individualPlan,
   quotaResetDate,
@@ -1399,13 +1401,16 @@ function IconCloseX() {
   );
 }
 
-/** M-20: voucher code entry, mirrored from production ("Kode voucher"). Runs the guardrails (G1 to G12). */
+/** M-20: voucher code entry, mirrored from production ("Kode voucher"). Copy matches the requirements doc word for word. */
 function VoucherModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"form" | "verify" | "done">("form");
   const [error, setError] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpNote, setOtpNote] = useState<string | null>(null);
+  const [resends, setResends] = useState(0);
   const [busy, setBusy] = useState(false);
   const [granted, setGranted] = useState<{ tier: PaidTier; months: number; endsAt: string; repeat?: boolean } | null>(null);
   useEffect(() => {
@@ -1425,6 +1430,9 @@ function VoucherModal({ close }: { close: () => void }) {
         setGranted({ tier: r.tier!, months: r.months!, endsAt: r.endsAt!, repeat: r.repeat });
         setStage("done");
       } else if (r.reason === "EMAIL_UNVERIFIED") {
+        setOtp("");
+        setOtpError(null);
+        setOtpNote(null);
         setStage("verify");
       } else {
         setError(r.message);
@@ -1432,11 +1440,28 @@ function VoucherModal({ close }: { close: () => void }) {
     }, 350);
   }
   function verify() {
+    // Prototype: 000000 is a wrong code, 999999 an expired one; any other 6 digits pass.
+    if (otp === "000000" || otp === "999999") {
+      setOtpNote(null);
+      setOtpError(otp === "000000" ? VOUCHER_COPY.otpInvalid : VOUCHER_COPY.otpExpired);
+      return;
+    }
     api.setEmailVerified(true);
     setStage("form");
     setOtp("");
     // Continue the same claim; the code was not consumed while waiting.
     setTimeout(claim, 50);
+  }
+  function resend() {
+    setOtp("");
+    if (resends >= 3) {
+      setOtpNote(null);
+      setOtpError(VOUCHER_COPY.otpResendLimit(15));
+      return;
+    }
+    setResends(resends + 1);
+    setOtpError(null);
+    setOtpNote(VOUCHER_COPY.otpResent(s.user.maskedEmail));
   }
 
   return (
@@ -1471,23 +1496,52 @@ function VoucherModal({ close }: { close: () => void }) {
             <button className="btn-primary mt-4 h-12 w-full text-base" disabled={!code.trim() || busy} onClick={claim}>
               {busy ? "Checking…" : "Claim"}
             </button>
-            <p className="mt-3 text-[11px] text-muted">One voucher per promotion. Vouchers are for accounts on the Free plan and cannot be combined.</p>
+            <p className="mt-3 text-[11px] text-muted">One voucher per promotion. Vouchers are only for accounts on the Free plan and can&apos;t be combined.</p>
           </div>
         )}
         {stage === "verify" && (
           <div className="text-center">
             <h2 className="font-display text-[21px] font-semibold text-ink">Verify your email first</h2>
             <p className="mx-auto mt-1 max-w-[340px] text-sm text-ink-2">
-              We sent a 6-digit code to <strong className="text-ink">{s.user.maskedEmail}</strong>. Your voucher is kept and is not used up while you verify. <Spec id="G10" />
+              We sent a 6-digit code to <strong className="text-ink">{s.user.maskedEmail}</strong>. Your voucher is saved and won&apos;t be used up while you verify. <Spec id="V10" />
             </p>
-            <input className="input mt-5 h-12 text-center font-mono text-lg tracking-[0.4em]" inputMode="numeric" maxLength={6} placeholder="••••••" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))} aria-label="Verification code" autoFocus />
-            {s.ui.showSpecTags && <p className="mt-2 text-xs text-info">Prototype: any 6 digits work.</p>}
+            <input
+              className={`input mt-5 h-12 text-center font-mono text-lg tracking-[0.4em] ${otpError ? "!border-danger" : ""}`}
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="••••••"
+              value={otp}
+              onChange={(e) => {
+                setOtp(e.target.value.replace(/\D/g, ""));
+                setOtpError(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && otp.length === 6 && verify()}
+              aria-label="Verification code"
+              aria-invalid={!!otpError}
+              autoFocus
+            />
+            {otpError && (
+              <p className="mt-2 text-left text-sm text-danger" role="alert">
+                {otpError}
+              </p>
+            )}
+            {otpNote && !otpError && (
+              <p className="mt-2 text-left text-sm text-success" role="status">
+                {otpNote}
+              </p>
+            )}
+            {s.ui.showSpecTags && <p className="mt-2 text-xs text-info">Prototype: any 6 digits work. 000000 is a wrong code, 999999 an expired one. The 4th resend hits the limit.</p>}
             <button className="btn-primary mt-4 h-12 w-full text-base" disabled={otp.length !== 6} onClick={verify}>
               Verify and claim
             </button>
-            <button className="mt-2 text-xs text-muted hover:text-ink" onClick={() => setStage("form")}>
-              Back
-            </button>
+            <div className="mt-3 flex items-center justify-center gap-4 text-xs">
+              <button className="font-medium text-ink underline-offset-2 hover:underline" onClick={resend}>
+                Resend code
+              </button>
+              <button className="text-muted hover:text-ink" onClick={() => setStage("form")}>
+                Back
+              </button>
+            </div>
           </div>
         )}
         {stage === "done" && granted && (
@@ -1495,9 +1549,9 @@ function VoucherModal({ close }: { close: () => void }) {
             <span className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full bg-success-tint text-success">
               <IconCheckCircle size={32} />
             </span>
-            <h2 className="font-display text-[21px] font-semibold text-ink">{granted.repeat ? "Already claimed" : `${TIER_LABEL[granted.tier]} is yours for ${granted.months} months`}</h2>
+            <h2 className="font-display text-[21px] font-semibold text-ink">{granted.repeat ? "Already claimed" : `${TIER_LABEL[granted.tier]} is yours for ${monthsText(granted.months)}`}</h2>
             <p className="mx-auto mt-2 max-w-[340px] text-sm text-ink-2">
-              Free until <strong className="text-ink">{fmtDate(granted.endsAt)}</strong>. No card needed and nothing will be charged. On that date your account returns to Free by itself, with your documents kept.
+              Free until <strong className="text-ink">{fmtDate(granted.endsAt)}</strong>. No card is needed and nothing will be charged. On that date your account returns to the Free plan automatically, and your documents stay with you.
             </p>
             {granted.tier === "business" && <p className="mx-auto mt-2 max-w-[340px] text-xs text-muted">Your Pro workspace is ready with 1 seat. Switch workspaces from the avatar menu.</p>}
             <button className="btn-primary mt-5 h-12 w-full text-base" onClick={close}>
@@ -1509,8 +1563,6 @@ function VoucherModal({ close }: { close: () => void }) {
     </div>
   );
 }
-
-/** M-21: buying a plan while a free voucher period is running. The user picks when the paid plan starts. */
 function PromoPurchaseModal({ promo, tier, interval, seats, close, onPick }: { promo: PromoInfo; tier: PaidTier; interval: Interval; seats: number; close: () => void; onPick: (c: "now" | "later") => void }) {
   const amount = planPrice(tier, interval, seats);
   const per = intervalWord(interval);

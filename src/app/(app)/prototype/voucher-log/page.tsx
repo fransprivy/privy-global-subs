@@ -20,7 +20,9 @@ const REASON_TEXT: Record<string, string> = {
   NOT_FREE: "Account is not on Free",
   ACTIVE_BENEFIT: "Already has a voucher benefit",
   ALREADY_IN_CAMPAIGN: "Already claimed in this campaign",
-  VELOCITY: "Device or IP limit",
+  IP_LIMIT: "IP claim limit reached",
+  NETWORK_ERROR: "Connection or server error",
+  SESSION_EXPIRED: "Session expired",
   EXHAUSTED: "Quota used up",
   PROMO_ENDED: "Free period ended, back to Free",
   PROMO_ENDED_BY_PURCHASE: "Free period ended early by a purchase",
@@ -28,12 +30,12 @@ const REASON_TEXT: Record<string, string> = {
 };
 
 function toCsv(rows: VoucherAuditRow[]): string {
-  const head = ["time_utc", "result", "reason", "code_entered", "code_id", "campaign", "account_id", "email", "region", "ip", "device_id"];
+  const head = ["time_utc", "result", "reason", "code_entered", "code_id", "campaign", "account_id", "email", "region", "ip"];
   const esc = (v: string | null) => `"${(v ?? "").replace(/"/g, '""')}"`;
-  return [head.join(","), ...rows.map((r) => [r.at, r.result, r.reason, r.codeEntered, r.codeId, r.campaign, r.accountId, r.email, r.region, r.ip, r.deviceId].map(esc).join(","))].join("\n");
+  return [head.join(","), ...rows.map((r) => [r.at, r.result, r.reason, r.codeEntered, r.codeId, r.campaign, r.accountId, r.email, r.region, r.ip].map(esc).join(","))].join("\n");
 }
 
-/** Internal view for the prototype: every voucher attempt, append-only (G5, RC-08). */
+/** Internal view for the prototype: every voucher attempt, append-only (V5). */
 export default function VoucherLogPage() {
   const { s } = useAppState();
   const v = s.vouchers;
@@ -61,7 +63,7 @@ export default function VoucherLogPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-[26px] font-semibold text-ink">
-            Voucher audit log <Spec id="G5" />
+            Voucher audit log <Spec id="V5" />
           </h1>
           <p className="text-sm text-muted">Every claim attempt, successful or not. Rows are only added, never changed. This is an internal view; users never see it.</p>
         </div>
@@ -110,7 +112,7 @@ export default function VoucherLogPage() {
       </div>
 
       <div className="card mt-6 overflow-x-auto">
-        <table className="w-full min-w-[1080px] text-sm">
+        <table className="w-full min-w-[960px] text-sm">
           <thead>
             <tr className="border-b border-line text-left text-ink">
               <th className="px-4 py-3 font-semibold">Time</th>
@@ -121,13 +123,12 @@ export default function VoucherLogPage() {
               <th className="px-4 py-3 font-semibold">Account</th>
               <th className="px-4 py-3 font-semibold">Region</th>
               <th className="px-4 py-3 font-semibold">IP</th>
-              <th className="px-4 py-3 font-semibold">Device</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-muted">
+                <td colSpan={8} className="px-4 py-10 text-center text-muted">
                   No attempts match this filter.
                 </td>
               </tr>
@@ -152,7 +153,6 @@ export default function VoucherLogPage() {
                 </td>
                 <td className="px-4 py-2.5 text-ink-2">{r.region}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-ink-2">{r.ip}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-ink-2">{r.deviceId}</td>
               </tr>
             ))}
           </tbody>

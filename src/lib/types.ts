@@ -97,7 +97,7 @@ export interface PrepaidPeriod {
   /** How this period was paid (Indonesia one-time purchases). Card payers are eligible to convert to auto-renewal. */
   paidWith?: PaymentMethodKind;
   paidWithLabel?: string;
-  /** Voucher benefit: the code and campaign that granted this period (G13). */
+  /** Voucher benefit: the code and campaign that granted this period (V13). */
   voucherCode?: string;
   campaign?: string;
 }
@@ -325,7 +325,9 @@ export type VoucherReason =
   | "NOT_FREE"
   | "ACTIVE_BENEFIT"
   | "ALREADY_IN_CAMPAIGN"
-  | "VELOCITY"
+  | "IP_LIMIT"
+  | "NETWORK_ERROR"
+  | "SESSION_EXPIRED"
   | "EXHAUSTED"
   | "PROMO_ENDED"
   | "PROMO_ENDED_BY_PURCHASE"
@@ -336,12 +338,12 @@ export interface VoucherCode {
   /** Text the user types. Compared after trim, uppercase and removing spaces and dashes. */
   code: string;
   campaign: string;
-  /** G4: one code, one benefit. */
+  /** V4: one code, one benefit. */
   tier: PaidTier;
   months: number;
-  /** G6: at least one region. */
+  /** V6: at least one region. */
   regions: Region[];
-  /** G1: 1 for unique codes (Option A), N for a shared code (Option B). */
+  /** V1: 1 for unique codes (Option A), N for a shared code (Option B). */
   maxRedemptions: number;
   used: number;
   /** G2. */
@@ -357,10 +359,9 @@ export interface VoucherRedemption {
   accountId: string;
   at: string;
   ip: string;
-  deviceId: string;
   endsAt: string;
 }
-/** G5: append-only, every attempt. */
+/** V5: append-only, every attempt. */
 export interface VoucherAuditRow {
   id: string;
   at: string;
@@ -371,7 +372,6 @@ export interface VoucherAuditRow {
   email: string;
   region: Region;
   ip: string;
-  deviceId: string;
   result: "SUCCESS" | "FAIL" | "INFO";
   reason: VoucherReason;
 }
@@ -382,7 +382,6 @@ export interface VoucherConfig {
   ipFailLimit: number;
   ipWindowMin: number;
   ipLockMin: number;
-  devicePerCampaign: number;
   ipPer24h: number;
 }
 export interface VoucherState {
@@ -391,10 +390,11 @@ export interface VoucherState {
   audit: VoucherAuditRow[];
   config: VoucherConfig;
   /** Simulated client fingerprint (prototype). */
-  deviceId: string;
   ip: string;
   accountLockUntil?: string | null;
   ipLockUntil?: string | null;
+  /** Prototype only: the next claim fails with this error, once. */
+  nextFault?: "network" | "session" | null;
   /** The network the IP lock applies to. */
   ipLockIp?: string | null;
 }

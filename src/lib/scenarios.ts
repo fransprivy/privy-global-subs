@@ -102,14 +102,14 @@ export const SCENARIOS: ScenarioMeta[] = [
     id: "voucher-free",
     title: "Voucher: eligible Free user",
     persona: "Frans, Free plan, region Australia, verified email",
-    description: "Claim AU-PERSONAL-3M from the plan page: Personal free for 3 months, no card, back to Free by itself. Then try a second code, buy a plan mid-promo (start now or when the free period ends) and jump to the end date.",
+    description: "Claim AU-PERSONAL-3M from the plan page: Personal free for 3 months, no card, back to Free automatically. Then try a second code, buy a plan mid-promo (start now or when the free period ends) and jump to the end date.",
     tag: "Vouchers",
   },
   {
     id: "voucher-rejections",
     title: "Voucher: guardrails and rejections",
-    persona: "Frans, Free plan, email not verified, on a device that already claimed this campaign",
-    description: "Walk through every rejection: unknown and paused (same generic message), expired, wrong region, email verification, device and IP velocity, the 5-attempt lock, fully redeemed, and the last-slot concurrency test.",
+    persona: "Frans, Free plan, email not verified",
+    description: "Walk through every rejection: unknown and paused (same generic message), expired, wrong region, email verification, the 5-attempt lock, the per-network claim limit, a code with no quota left, the last-slot test, and connection or session errors.",
     tag: "Vouchers",
   },
   {
@@ -259,8 +259,6 @@ const SOFT_VISA: Card = { id: "card_visa9995", brand: "visa", last4: "9995", exp
 const MASTERCARD: Card = { id: "card_mc4444", brand: "mastercard", last4: "4444", expMonth: 6, expYear: 2028, behavior: "success", addedAt: "2026-08-15T09:00:00.000Z" };
 
 /* Voucher seed: campaign AU-LAUNCH-2026 (one shared Personal code, five unique Pro codes) plus codes that show each rejection. */
-export const DEVICE_MAC = "dev-frans-macbook";
-export const DEVICE_PHONE = "dev-frans-iphone";
 export const IP_HOME = "203.0.113.24";
 export const IP_OFFICE = "198.51.100.7";
 function vcode(id: string, code: string, campaign: string, tier: PaidTier, months: number, regions: Region[], max: number, used: number, redeemBy: string, option: "A" | "B", status: "active" | "paused" = "active"): VoucherCode {
@@ -281,14 +279,13 @@ function seedVouchers(extraRedemptions: VoucherRedemption[] = []): VoucherState 
   ];
   const redemptions: VoucherRedemption[] = [
     ...extraRedemptions,
-    { id: "rd_seed1", codeId: "vc_pro5", campaign: "AU-LAUNCH-2026", accountId: "acc_mia", at: "2026-09-08T03:10:00.000Z", ip: "192.0.2.61", deviceId: "dev-mia-pixel", endsAt: "2026-12-08T00:00:00.000Z" },
+    { id: "rd_seed1", codeId: "vc_pro5", campaign: "AU-LAUNCH-2026", accountId: "acc_mia", at: "2026-09-08T03:10:00.000Z", ip: "192.0.2.61", endsAt: "2026-12-08T00:00:00.000Z" },
   ];
   return {
     codes,
     redemptions,
-    audit: redemptions.map((r, i) => ({ id: `au_seed${i}`, at: r.at, codeId: r.codeId, codeEntered: codes.find((c) => c.id === r.codeId)!.code, campaign: r.campaign, accountId: r.accountId, email: `${r.accountId.replace("acc_", "")}@example.com`, region: "AU" as Region, ip: r.ip, deviceId: r.deviceId, result: "SUCCESS" as const, reason: "SUCCESS" as const })),
+    audit: redemptions.map((r, i) => ({ id: `au_seed${i}`, at: r.at, codeId: r.codeId, codeEntered: codes.find((c) => c.id === r.codeId)!.code, campaign: r.campaign, accountId: r.accountId, email: `${r.accountId.replace("acc_", "")}@example.com`, region: "AU" as Region, ip: r.ip, result: "SUCCESS" as const, reason: "SUCCESS" as const })),
     config: DEFAULT_VOUCHER_CONFIG,
-    deviceId: DEVICE_MAC,
     ip: IP_HOME,
     accountLockUntil: null,
     ipLockUntil: null,
@@ -624,10 +621,8 @@ export function buildScenario(id: string): AppState {
         ...s,
         user: { ...s.user, emailVerified: false },
         vouchers: seedVouchers([
-          // Another account already claimed this campaign on this MacBook (G12 device rule).
-          { id: "rd_dev", codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: "acc_frans_alt", at: "2026-09-09T22:40:00.000Z", ip: "192.0.2.90", deviceId: DEVICE_MAC, endsAt: "2026-12-09T00:00:00.000Z" },
-          // Five claims from the office network in the last 24 hours (G12 IP rule).
-          ...[1, 2, 3, 4, 5].map((n) => ({ id: `rd_ip${n}`, codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: `acc_office_${n}`, at: `2026-09-10T0${n}:15:00.000Z`, ip: IP_OFFICE, deviceId: `dev-office-${n}`, endsAt: "2026-12-10T00:00:00.000Z" })),
+          // Five claims from the office network in the last 24 hours (V12).
+          ...[1, 2, 3, 4, 5].map((n) => ({ id: `rd_ip${n}`, codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: `acc_office_${n}`, at: `2026-09-10T0${n}:15:00.000Z`, ip: IP_OFFICE, endsAt: "2026-12-10T00:00:00.000Z" })),
         ]),
       };
     case "voucher-active": {
@@ -636,11 +631,11 @@ export function buildScenario(id: string): AppState {
       return {
         ...s,
         prepaid: { tier: "personal", source: "redeem", periods: [{ start, end, tier: "personal", interval: "monthly", purchasedAt: "2026-06-16T04:20:00.000Z", seats: 1, paidWithLabel: "Voucher AU-PERSONAL-3M", voucherCode: "AU-PERSONAL-3M", campaign: "AU-LAUNCH-2026" }] },
-        vouchers: seedVouchers([{ id: "rd_me", codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-06-16T04:20:00.000Z", ip: IP_HOME, deviceId: DEVICE_MAC, endsAt: end }]),
+        vouchers: seedVouchers([{ id: "rd_me", codeId: "vc_personal", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-06-16T04:20:00.000Z", ip: IP_HOME, endsAt: end }]),
         usage: { envelopesSent: 21, templates: 6, contacts: 30 },
-        history: [{ id: "h1", at: "2026-06-16T04:20:00.000Z", type: "voucher_redeemed", title: "Voucher AU-PERSONAL-3M redeemed: Personal free for 3 months", detail: "Free until Sep 16, 2026. No card on file, nothing will be charged. The account returns to Free on that date." }],
+        history: [{ id: "h1", at: "2026-06-16T04:20:00.000Z", type: "voucher_redeemed", title: "Voucher AU-PERSONAL-3M redeemed: Personal free for 3 months", detail: "Free until Sep 16, 2026. No card on file and nothing will be charged. Your account returns to the Free plan on that date." }],
         emails: [
-          { id: "e1", templateId: "N-40", at: "2026-06-16T04:20:00.000Z", to: USER.email, subject: "Your free Privy Personal is active until Sep 16, 2026", body: ["Your voucher is claimed. You have Privy Personal free for 3 months, until Sep 16, 2026.", "We did not ask for a card, so nothing can be charged. On Sep 16, 2026 your account returns to the Free plan by itself and your documents stay with you."], cta: { label: "View plan settings", href: "/settings/billing" } },
+          { id: "e1", templateId: "N-40", at: "2026-06-16T04:20:00.000Z", to: USER.email, subject: "Your free Privy Personal is active until Sep 16, 2026", body: ["Your voucher is claimed. You have Privy Personal free for 3 months, until Sep 16, 2026.", "We did not ask for a card, so nothing can be charged. On Sep 16, 2026 your account returns to the Free plan automatically, and your documents stay with you."], cta: { label: "View plan settings", href: "/settings/billing" } },
         ],
       };
     }
@@ -654,13 +649,13 @@ export function buildScenario(id: string): AppState {
         activeWorkspace: "business",
         prepaid: { tier: "business", source: "redeem", periods: [{ start, end, tier: "business", interval: "monthly", purchasedAt: "2026-08-01T05:00:00.000Z", seats: 1, paidWithLabel: "Voucher 7K2M9XQ4HT", voucherCode: "7K2M9XQ4HT", campaign: "AU-LAUNCH-2026" }] },
         vouchers: (() => {
-          const v = seedVouchers([{ id: "rd_me", codeId: "vc_pro1", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-08-01T05:00:00.000Z", ip: IP_HOME, deviceId: DEVICE_MAC, endsAt: end }]);
+          const v = seedVouchers([{ id: "rd_me", codeId: "vc_pro1", campaign: "AU-LAUNCH-2026", accountId: ACCOUNT_ID, at: "2026-08-01T05:00:00.000Z", ip: IP_HOME, endsAt: end }]);
           return { ...v, codes: v.codes.map((c) => (c.id === "vc_pro1" ? { ...c, used: 1 } : c)) };
         })(),
         usage: { envelopesSent: 8, templates: 2, contacts: 12 },
         history: [
           { id: "h2", at: "2026-08-01T05:00:00.000Z", type: "workspace_created", title: "Pro workspace \"Frans's team\" created", detail: "You are the owner. Your Individual workspace now has unlimited envelopes (Personal, included with Pro)." },
-          { id: "h1", at: "2026-08-01T05:00:00.000Z", type: "voucher_redeemed", title: "Voucher 7K2M9XQ4HT redeemed: Pro free for 3 months", detail: "Free until Nov 1, 2026. No card on file, nothing will be charged. The account returns to Free on that date." },
+          { id: "h1", at: "2026-08-01T05:00:00.000Z", type: "voucher_redeemed", title: "Voucher 7K2M9XQ4HT redeemed: Pro free for 3 months", detail: "Free until Nov 1, 2026. No card on file and nothing will be charged. Your account returns to the Free plan on that date." },
         ],
       };
     }

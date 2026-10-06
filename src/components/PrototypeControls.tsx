@@ -6,7 +6,7 @@ import { buildLabel } from "@/lib/build";
 import { regionMeta } from "@/lib/catalog";
 import { activeSubscription, activeWorkspaceId, ipLocked, isPromoUser, allWorkspaces, CONFIG, isOneTimeUser, openBill, pendingPayment, prepaidEnd, regionOf } from "@/lib/engine";
 import { addDays, daysBetween, fmtDate, fmtDateTime, startOfDayUTC } from "@/lib/format";
-import { DEVICE_MAC, DEVICE_PHONE, IP_HOME, IP_OFFICE, SCENARIOS } from "@/lib/scenarios";
+import { IP_HOME, IP_OFFICE, SCENARIOS } from "@/lib/scenarios";
 import { useAppState } from "@/lib/store";
 import type { CardBehavior, Region } from "@/lib/types";
 import { IconClose, IconMail, IconRefresh, IconSliders } from "./Icons";
@@ -203,17 +203,18 @@ export function PrototypeControls() {
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="text-[11px] text-muted">
-                  Device
-                  <select className="input mt-0.5 !py-1.5 text-xs" value={s.vouchers.deviceId} onChange={(e) => api.setVoucherClient({ deviceId: e.target.value })}>
-                    <option value={DEVICE_MAC}>MacBook</option>
-                    <option value={DEVICE_PHONE}>iPhone</option>
-                  </select>
-                </label>
-                <label className="text-[11px] text-muted">
                   Network (IP)
                   <select className="input mt-0.5 !py-1.5 text-xs" value={s.vouchers.ip} onChange={(e) => api.setVoucherClient({ ip: e.target.value })}>
                     <option value={IP_HOME}>Home · {IP_HOME}</option>
                     <option value={IP_OFFICE}>Office · {IP_OFFICE}</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-muted">
+                  Next claim response
+                  <select className="input mt-0.5 !py-1.5 text-xs" value={s.vouchers.nextFault ?? ""} onChange={(e) => api.setVoucherFault((e.target.value || null) as "network" | "session" | null)}>
+                    <option value="">Normal</option>
+                    <option value="network">Connection error</option>
+                    <option value="session">Session expired</option>
                   </select>
                 </label>
               </div>

@@ -351,8 +351,8 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       return {
         subject: `Your free Privy ${c.tierLabel} is active until ${c.newEnd}`,
         body: [
-          `Your voucher is claimed. You have Privy ${c.tierLabel} free for ${c.daysLeft} months, until ${c.newEnd}.`,
-          `We did not ask for a card, so nothing can be charged. On ${c.newEnd} your account returns to the Free plan by itself and your documents stay with you.`,
+          `Your voucher is claimed. You have Privy ${c.tierLabel} free for ${c.daysLeft} month${c.daysLeft === 1 ? "" : "s"}, until ${c.newEnd}.`,
+          `We did not ask for a card, so nothing can be charged. On ${c.newEnd} your account returns to the Free plan automatically, and your documents stay with you.`,
           `Want to keep ${c.tierLabel} afterwards? You can subscribe any time from Plan settings.`,
         ],
         cta: { label: "View plan settings", href: planPage },

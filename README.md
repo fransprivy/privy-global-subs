@@ -6,23 +6,23 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
-## Voucher codes: Redeem Code Guardrails (added 5 Oct 2026)
+## Voucher codes (added 5 Oct 2026, revised 6 Oct 2026)
 
-"Business" is now called **Pro** everywhere in the UI, copy and emails (internal ids keep `business`). Vouchers apply to Personal and Pro.
+Requirements and every message (English and Bahasa Indonesia) live in the doc "Redeem Voucher: Short Requirements"; tags V1 to V18 in the app refer to it. "Business" is called **Pro** everywhere in the UI, copy and emails (internal ids keep `business`). Vouchers apply to Personal and Pro. The prototype UI is English only.
 
 - **Where**: plan page "Have a voucher code? Redeem it here", and "Redeem a voucher code" on Billing for Free accounts. The window (M-20) mirrors production: title, one field, "Claim".
 - **Benefit**: the plan free for N calendar months (month-end clamp), no card, no bill, never renewed. A Pro code creates the Pro workspace with 1 seat. On the end date the account returns to Free with no payment attempt (Pro workspace becomes read-only). Emails N-40 and N-41, banner B-11.
-- **Checks, in order**: rate-limit lock, code exists, already claimed by this account (returns the earlier success), paused, redeem-by date, region (the editable region in Workspace preferences), verified email (OTP inside the window, not counted as a failure), Free plan and no running voucher benefit, once per campaign, device and IP velocity, quota last. Unknown and paused codes share one generic message.
-- **Limits**: 5 failures per account in 15 minutes locks for 15 minutes; 20 per IP in 1 hour locks that IP for 1 hour; 1 claim per device per campaign; 5 claims per IP per 24 hours. Values live in `DEFAULT_VOUCHER_CONFIG` (`src/lib/engine.ts`).
+- **Checks, in order**: rate-limit lock, running voucher benefit (same code again returns the earlier success), Free plan, code exists, paused, redeem-by date, region (the editable region in Workspace preferences), verified email (6-digit code inside the window, not counted as a failure), once per campaign, claims per IP, quota last. The first three look at the account only, so a paid account always gets the Free-plan message. Unknown and paused codes share one generic message. There is no device check.
+- **Limits**: 5 failures per account in 15 minutes locks for 15 minutes; 20 per IP in 1 hour locks that IP for 1 hour; 5 claims per IP per campaign per 24 hours. Values live in `DEFAULT_VOUCHER_CONFIG`, copy in `VOUCHER_COPY` (`src/lib/engine.ts`).
 - **Buying during a free period** (M-21): the user chooses "start when my free period ends" (card saved, first charge on the end date) or "start today" (charged now, remaining free days are not credited).
-- **Prototype panel → Voucher codes**: seeded codes with quota and an Active/Paused switch, device and network selectors, email-verified toggle, "+15 min", "20 wrong guesses from this IP", "50 claims on last slot", and the audit log (`/prototype/voucher-log`, filter by campaign, CSV export). There is no admin screen for creating codes; codes are seeded in `src/lib/scenarios.ts`.
+- **Prototype panel → Voucher codes**: seeded codes with quota and an Active/Paused switch, network selector, "Next claim response" (connection error, session expired), email-verified toggle, "+15 min", "20 wrong guesses from this IP", "50 claims on last slot", and the audit log (`/prototype/voucher-log`, filter by campaign, CSV export). In the verify step 000000 is a wrong code and 999999 an expired one. There is no admin screen for creating codes; codes are seeded in `src/lib/scenarios.ts`.
 - **Scenarios**: "Voucher: eligible Free user", "Voucher: guardrails and rejections", "Voucher: free Personal, 6 days left", "Voucher: free Pro workspace".
 
 | Code | Result |
 | --- | --- |
 | `AU-PERSONAL-3M` | Personal, 3 months, shared (300), Australia |
 | `7K2M9XQ4HT`, `B8R3NW6YD5`, `T4VC9G2KP7`, `M6HX3Q8ZJ2` | Pro, 3 months, unique, Australia |
-| `W9D5R7B4NK` | Unique code already used: "fully redeemed" |
+| `W9D5R7B4NK` | Unique code already used: "no longer available" |
 | `AU-EARLY-1M` | Expired on 31 Aug 2026 |
 | `AU-PARTNER-3M` | Paused: generic message |
 | `ID-PERSONAL-1M` | Indonesia only: wrong region from Australia |

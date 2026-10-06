@@ -49,7 +49,8 @@ interface StoreApi {
   transferOwnership: (memberId: string) => void;
   redeemVoucher: (code: string) => E.VoucherResult;
   subscribeAfterPromo: (card: Card, consentText: string, tier: PaidTier, interval: Interval, seats: number) => void;
-  setVoucherClient: (patch: { deviceId?: string; ip?: string }) => void;
+  setVoucherClient: (patch: { ip?: string }) => void;
+  setVoucherFault: (fault: "network" | "session" | null) => void;
   setEmailVerified: (verified: boolean) => void;
   toggleVoucherPause: (codeId: string) => void;
   addIpFailures: (n: number) => void;
@@ -209,6 +210,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       subscribeAfterPromo: (card, consentText, tier, interval, seats) => update((s) => E.subscribeAfterPromo(s, card, consentText, tier, interval, seats)),
       setVoucherClient: (patch) => update((s) => E.setVoucherClient(s, patch)),
+      setVoucherFault: (fault) => update((s) => E.setVoucherFault(s, fault)),
       setEmailVerified: (verified) => update((s) => E.setEmailVerified(s, verified)),
       toggleVoucherPause: (codeId) => update((s) => E.toggleVoucherPause(s, codeId)),
       addIpFailures: (n) => update((s) => E.addIpFailures(s, n)),

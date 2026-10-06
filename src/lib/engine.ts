@@ -944,7 +944,7 @@ export function runSweep(s: AppState): AppState {
   // Expire Payment IDs that ran out (a day has passed since they were generated).
   next = expireStalePayments(next);
 
-  // Voucher benefit: ends on its date, account returns to Free, nothing is charged (G13).
+  // Voucher benefit: ends on its date, account returns to Free, nothing is charged (V13).
   if (!activeSubscription(next) && next.prepaid?.source === "redeem") {
     const pe = prepaidEnd(next);
     if (pe && isSameOrAfter(next.now, pe)) next = expirePromo(next, pe);
@@ -1795,7 +1795,7 @@ function capitalize(t: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Voucher codes: Redeem Code Guardrails (G1 to G13)                    */
+/* Voucher codes (requirements V1 to V18)                               */
 /* ------------------------------------------------------------------ */
 export const ACCOUNT_ID = "acc_frans";
 export const DEFAULT_VOUCHER_CONFIG: VoucherConfig = {
@@ -1805,7 +1805,6 @@ export const DEFAULT_VOUCHER_CONFIG: VoucherConfig = {
   ipFailLimit: 20,
   ipWindowMin: 60,
   ipLockMin: 60,
-  devicePerCampaign: 1,
   ipPer24h: 5,
 };
 /** Codes are case-insensitive; spaces and dashes are ignored. */
@@ -1849,7 +1848,7 @@ export function promoInfo(s: AppState): PromoInfo | null {
   return null;
 }
 
-function audit(s: AppState, row: Pick<VoucherAuditRow, "result" | "reason" | "codeEntered"> & { code?: VoucherCode | null; accountId?: string; email?: string; ip?: string; deviceId?: string }): AppState {
+function audit(s: AppState, row: Pick<VoucherAuditRow, "result" | "reason" | "codeEntered"> & { code?: VoucherCode | null; accountId?: string; email?: string; ip?: string }): AppState {
   const v = s.vouchers!;
   const entry: VoucherAuditRow = {
     id: uid("au"),
@@ -1861,7 +1860,6 @@ function audit(s: AppState, row: Pick<VoucherAuditRow, "result" | "reason" | "co
     email: row.email ?? s.user.email,
     region: regionOf(s),
     ip: row.ip ?? v.ip,
-    deviceId: row.deviceId ?? v.deviceId,
     result: row.result,
     reason: row.reason,
   };
@@ -1876,8 +1874,8 @@ export function accountLocked(s: AppState): boolean {
   const v = s.vouchers;
   return !!v && !!v.accountLockUntil && v.accountLockUntil > s.now;
 }
-const NOT_COUNTED: VoucherReason[] = ["EMAIL_UNVERIFIED", "RATE_LIMIT_ACCOUNT", "RATE_LIMIT_IP"];
-/** G11: after a failure, lock the account or the IP when the window limit is reached. */
+const NOT_COUNTED: VoucherReason[] = ["EMAIL_UNVERIFIED", "RATE_LIMIT_ACCOUNT", "RATE_LIMIT_IP", "ACTIVE_BENEFIT", "NOT_FREE"];
+/** V11: after a failure, lock the account or the IP when the window limit is reached. */
 function applyRateLimit(s: AppState): AppState {
   const v = s.vouchers!;
   const c = v.config;
@@ -1901,17 +1899,44 @@ export interface VoucherResult {
   /** Same account, same code again: the earlier success is returned, nothing new is granted. */
   repeat?: boolean;
 }
-const GENERIC = "This code can't be used. Check the code and try again.";
+/** User-facing voucher copy. Kept word for word with the requirements doc ("Redeem Voucher: Short Requirements"). */
+const minutesText = (n: number) => `${n} minute${n === 1 ? "" : "s"}`;
+export const monthsText = (n: number) => `${n} month${n === 1 ? "" : "s"}`;
+export const VOUCHER_COPY = {
+  generic: "This code can't be used. Check the code and try again.",
+  lockedAccount: (n: number) => `Too many attempts. Try again in ${minutesText(n)}.`,
+  lockedIp: (n: number) => `Too many attempts from your network. Try again in ${minutesText(n)}.`,
+  activeBenefit: (date: string) => `You already have a free plan from a voucher until ${date}. Vouchers can't be combined.`,
+  notFree: (plan: string) => `Voucher codes are only for accounts on the Free plan. You are on ${plan}.`,
+  expired: (date: string) => `This code expired on ${date}.`,
+  region: (region: string) => `This code isn't available in your region (${region}).`,
+  alreadyInCampaign: "You have already claimed a code from this promotion.",
+  ipLimit: "This code can't be claimed from your network right now. Try again later or contact support.",
+  exhausted: "This code is no longer available. Its quota has been fully claimed.",
+  network: "We couldn't check your code, and your voucher was not used. Check your connection and try again.",
+  session: "Your session has expired. Sign in again to claim your code.",
+  otpInvalid: "That code is incorrect. Check the email we sent and try again.",
+  otpExpired: "That code has expired. Request a new one.",
+  otpResendLimit: (n: number) => `You have requested too many codes. Try again in ${minutesText(n)}.`,
+  otpResent: (email: string) => `We sent a new code to ${email}.`,
+};
 
 /**
- * Redeem a voucher code. Order follows the PRD with one change: the rate-limit lock is checked first,
- * otherwise a locked client could keep telling real codes (lock message) from wrong ones (generic message).
+ * Redeem a voucher code. Checks run in this order and the first failure wins:
+ * lock, running voucher benefit, Free plan, code exists, active, redeem-by date, region, verified email,
+ * once per campaign, IP limit, quota. The first three look at the account only, so a locked client,
+ * a paid account or an account with a running voucher learns nothing about whether a code is real.
  * Quota is checked and used last, so a failed check never burns quota.
  */
 export function redeemVoucher(s: AppState, raw: string): { state: AppState; result: VoucherResult } {
   const v = s.vouchers;
   const entered = raw.trim();
-  if (!v) return { state: s, result: { ok: false, reason: "UNKNOWN", message: GENERIC } };
+  if (!v) return { state: s, result: { ok: false, reason: "UNKNOWN", message: VOUCHER_COPY.generic } };
+  // Prototype only: simulate a connection or session failure. Nothing is recorded and no quota is used.
+  if (v.nextFault) {
+    const fault = v.nextFault;
+    return { state: { ...s, vouchers: { ...v, nextFault: null } }, result: { ok: false, reason: fault === "network" ? "NETWORK_ERROR" : "SESSION_EXPIRED", message: fault === "network" ? VOUCHER_COPY.network : VOUCHER_COPY.session } };
+  }
   const key = normalizeCode(entered);
   const code = v.codes.find((c) => normalizeCode(c.code) === key) ?? null;
   const fail = (reason: VoucherReason, message: string, counted = true): { state: AppState; result: VoucherResult } => {
@@ -1920,42 +1945,38 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
     return { state: next, result: { ok: false, reason, message } };
   };
 
-  // G11 lock (checked before anything else, see note above)
-  if (v.accountLockUntil && v.accountLockUntil > s.now) return fail("RATE_LIMIT_ACCOUNT", `Too many attempts. Try again in ${minutesUntil(s.now, v.accountLockUntil)} minutes.`, false);
-  if (ipLocked(s)) return fail("RATE_LIMIT_IP", `Too many attempts from your network. Try again in ${minutesUntil(s.now, v.ipLockUntil!)} minutes.`, false);
+  // 1. Rate-limit lock (V11)
+  if (accountLocked(s)) return fail("RATE_LIMIT_ACCOUNT", VOUCHER_COPY.lockedAccount(minutesUntil(s.now, v.accountLockUntil!)), false);
+  if (ipLocked(s)) return fail("RATE_LIMIT_IP", VOUCHER_COPY.lockedIp(minutesUntil(s.now, v.ipLockUntil!)), false);
 
-  // 1. Code exists and is Active. Unknown and Paused share one message (no enumeration).
-  if (!code) return fail("UNKNOWN", GENERIC);
-  // Idempotency: this account already holds this code's benefit.
-  const mine = v.redemptions.find((r) => r.accountId === ACCOUNT_ID && r.codeId === code.id);
-  if (mine && !isSameOrAfter(s.now, mine.endsAt) && (isPromoUser(s) || !!activeSubscription(s)?.promo)) {
-    return { state: s, result: { ok: true, reason: "SUCCESS", message: "Already claimed.", tier: code.tier, months: code.months, endsAt: mine.endsAt, repeat: true } };
-  }
-  if (code.status === "paused") return fail("PAUSED", GENERIC);
-  // 2. Redeem-by date (G2)
-  if (isSameOrAfter(s.now, code.redeemBy)) return fail("EXPIRED", `This code expired on ${fmtDate(code.redeemBy)}.`);
-  // 3. Region lock (G6)
-  if (!code.regions.includes(regionOf(s))) return fail("REGION", `This code isn't available in your region (${regionMeta(regionOf(s)).name}).`);
-  // 5. Verified email (G10): not a failed attempt, the code is not consumed.
-  if (s.user.emailVerified === false) return fail("EMAIL_UNVERIFIED", "Verify your email to claim this code.", false);
-  // 6. Free plan, no active benefit (G8, G9)
+  // 2. Running voucher benefit (V9). The same code again returns the earlier success (V15).
   if (isPromoUser(s) || activeSubscription(s)?.promo) {
     const info = promoInfo(s);
-    return fail("ACTIVE_BENEFIT", `You already have a free plan from a voucher${info ? ` until ${fmtDate(info.until)}` : ""}. Codes can't be combined.`);
+    const mine = code ? v.redemptions.find((r) => r.accountId === ACCOUNT_ID && r.codeId === code.id && !isSameOrAfter(s.now, r.endsAt)) : undefined;
+    if (code && mine) return { state: s, result: { ok: true, reason: "SUCCESS", message: "Already claimed.", tier: code.tier, months: code.months, endsAt: mine.endsAt, repeat: true } };
+    return fail("ACTIVE_BENEFIT", VOUCHER_COPY.activeBenefit(info ? fmtDate(info.until) : ""), false);
   }
-  if (currentTier(s) !== "free") return fail("NOT_FREE", `Voucher codes are for accounts on the Free plan. You are on ${currentPlanName(s)}.`);
-  // 7. Once per account per campaign (G7)
-  if (v.redemptions.some((r) => r.accountId === ACCOUNT_ID && r.campaign === code.campaign)) return fail("ALREADY_IN_CAMPAIGN", "You have already claimed a code from this promotion.");
-  // 8. Device and IP velocity (G12)
-  const inCampaign = v.redemptions.filter((r) => r.campaign === code.campaign);
-  const dayAgo = addMinutes(s.now, -24 * 60);
-  if (inCampaign.filter((r) => r.deviceId === v.deviceId).length >= v.config.devicePerCampaign || inCampaign.filter((r) => r.ip === v.ip && r.at >= dayAgo).length >= v.config.ipPer24h) {
-    return fail("VELOCITY", "This code can't be claimed from this device or network. Contact support if you think this is a mistake.");
-  }
-  // 9. Quota (G1), checked last
-  if (code.used >= code.maxRedemptions) return fail("EXHAUSTED", "This code has been fully redeemed.");
+  // 3. Free plan only (V8): a paid account always gets this message, whatever it types.
+  if (currentTier(s) !== "free") return fail("NOT_FREE", VOUCHER_COPY.notFree(currentPlanName(s)), false);
 
-  // 10. One transaction: use quota, write redemption, grant entitlement, write audit log.
+  // 4-5. Code exists and is active. Unknown and paused share one message (V14).
+  if (!code) return fail("UNKNOWN", VOUCHER_COPY.generic);
+  if (code.status === "paused") return fail("PAUSED", VOUCHER_COPY.generic);
+  // 6. Redeem-by date (V2)
+  if (isSameOrAfter(s.now, code.redeemBy)) return fail("EXPIRED", VOUCHER_COPY.expired(fmtDate(code.redeemBy)));
+  // 7. Region lock (V6)
+  if (!code.regions.includes(regionOf(s))) return fail("REGION", VOUCHER_COPY.region(regionMeta(regionOf(s)).name));
+  // 8. Verified email (V10): not a failed attempt, the code is not consumed.
+  if (s.user.emailVerified === false) return fail("EMAIL_UNVERIFIED", "Verify your email to claim this code.", false);
+  // 9. Once per account per campaign (V7)
+  if (v.redemptions.some((r) => r.accountId === ACCOUNT_ID && r.campaign === code.campaign)) return fail("ALREADY_IN_CAMPAIGN", VOUCHER_COPY.alreadyInCampaign);
+  // 10. Claims per IP per campaign (V12)
+  const dayAgo = addMinutes(s.now, -24 * 60);
+  if (v.redemptions.filter((r) => r.campaign === code.campaign && r.ip === v.ip && r.at >= dayAgo).length >= v.config.ipPer24h) return fail("IP_LIMIT", VOUCHER_COPY.ipLimit);
+  // 11. Quota (V1), checked last
+  if (code.used >= code.maxRedemptions) return fail("EXHAUSTED", VOUCHER_COPY.exhausted);
+
+  // 12. One transaction: use quota, write redemption, grant entitlement, write audit log.
   const start = startOfDayUTC(s.now);
   const end = addMonthsClamped(start, code.months, dayOfMonthUTC(start));
   let next: AppState = {
@@ -1968,23 +1989,23 @@ export function redeemVoucher(s: AppState, raw: string): { state: AppState; resu
     vouchers: {
       ...v,
       codes: v.codes.map((c) => (c.id === code.id ? { ...c, used: c.used + 1 } : c)),
-      redemptions: [{ id: uid("rd"), codeId: code.id, campaign: code.campaign, accountId: ACCOUNT_ID, at: s.now, ip: v.ip, deviceId: v.deviceId, endsAt: end }, ...v.redemptions],
+      redemptions: [{ id: uid("rd"), codeId: code.id, campaign: code.campaign, accountId: ACCOUNT_ID, at: s.now, ip: v.ip, endsAt: end }, ...v.redemptions],
     },
   };
   next = audit(next, { result: "SUCCESS", reason: "SUCCESS", codeEntered: entered, code });
   if (code.tier === "business") next = activateWorkspace(next);
-  next = addHistory(next, "voucher_redeemed", `Voucher ${code.code} redeemed: ${TIER_LABEL[code.tier]} free for ${code.months} months`, `Free until ${fmtDate(end)}. No card on file, nothing will be charged. The account returns to Free on that date.`);
+  next = addHistory(next, "voucher_redeemed", `Voucher ${code.code} redeemed: ${TIER_LABEL[code.tier]} free for ${monthsText(code.months)}`, `Free until ${fmtDate(end)}. No card on file and nothing will be charged. Your account returns to the Free plan on that date.`);
   next = sendEmail(next, "N-40", { tierLabel: TIER_LABEL[code.tier], newEnd: fmtDate(end), daysLeft: code.months });
   next = toast(next, `${TIER_LABEL[code.tier]} is yours, free until ${fmtDate(end)}.`);
   return { state: next, result: { ok: true, reason: "SUCCESS", message: "Claimed.", tier: code.tier, months: code.months, endsAt: end } };
 }
 
-/** G13: the free period ended. Back to Free, no payment attempt. */
+/** V13: the free period ended. Back to Free, no payment attempt. */
 function expirePromo(s: AppState, pe: string): AppState {
   const tier = s.prepaid!.tier;
   const p = s.prepaid!.periods.find((x) => x.end === pe);
   const code = s.vouchers?.codes.find((c) => c.code === p?.voucherCode) ?? null;
-  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[tier]} period ended`, "Your account is back on Free. Nothing was charged. Your documents are kept.");
+  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[tier]} period ended`, "Your account is back on the Free plan. Nothing was charged and your documents are kept.");
   if (next.vouchers) next = audit(next, { result: "INFO", reason: "PROMO_ENDED", codeEntered: p?.voucherCode ?? "", code });
   next = sendEmail(next, "N-41", { tierLabel: TIER_LABEL[tier], prepaidEnd: fmtDate(pe), isBusiness: tier === "business" }, `N-41:${pe}`);
   if (tier === "business") next = expireWorkspace(next, fmtDate(pe));
@@ -1995,7 +2016,7 @@ function endPromoForPurchase(s: AppState, newTier: PaidTier): AppState {
   if (!isPromoUser(s)) return s;
   const info = promoInfo(s)!;
   const code = s.vouchers?.codes.find((c) => c.code === info.code) ?? null;
-  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[info.tier]} period ended early`, `You started a paid plan today. ${info.daysLeft} free day${info.daysLeft === 1 ? "" : "s"} were not used.`);
+  let next = addHistory(s, "promo_ended", `Free ${TIER_LABEL[info.tier]} period ended early`, `You started a paid plan today. ${info.daysLeft} free day${info.daysLeft === 1 ? " was" : "s were"} not used.`);
   if (next.vouchers) next = audit(next, { result: "INFO", reason: "PROMO_ENDED_BY_PURCHASE", codeEntered: info.code, code });
   if (info.tier === "business" && newTier !== "business") next = expireWorkspace(next, fmtDate(s.now));
   return { ...next, prepaid: null };
@@ -2031,13 +2052,16 @@ export function subscribeAfterPromo(s: AppState, card: Card, consentText: string
 }
 
 /* Prototype controls for vouchers */
-export function setVoucherClient(s: AppState, patch: { deviceId?: string; ip?: string }): AppState {
+export function setVoucherFault(s: AppState, fault: "network" | "session" | null): AppState {
+  return s.vouchers ? { ...s, vouchers: { ...s.vouchers, nextFault: fault } } : s;
+}
+export function setVoucherClient(s: AppState, patch: { ip?: string }): AppState {
   return s.vouchers ? { ...s, vouchers: { ...s.vouchers, ...patch } } : s;
 }
 export function setEmailVerified(s: AppState, verified: boolean): AppState {
   return { ...s, user: { ...s.user, emailVerified: verified } };
 }
-/** G3 kill switch. */
+/** V3 kill switch. */
 export function toggleVoucherPause(s: AppState, codeId: string): AppState {
   if (!s.vouchers) return s;
   const c = s.vouchers.codes.find((x) => x.id === codeId);
@@ -2045,11 +2069,11 @@ export function toggleVoucherPause(s: AppState, codeId: string): AppState {
   const status = c.status === "active" ? "paused" : "active";
   return toast({ ...s, vouchers: { ...s.vouchers, codes: s.vouchers.codes.map((x) => (x.id === codeId ? { ...x, status } : x)) } }, `${c.code} is now ${status}. ${status === "paused" ? "New claims are rejected; benefits already granted stay." : ""}`, "info");
 }
-/** Other accounts guessing codes from the same IP (G11 per-IP limit). */
+/** Other accounts guessing codes from the same IP (V11 per-IP limit). */
 export function addIpFailures(s: AppState, n: number): AppState {
   if (!s.vouchers) return s;
   let next = s;
-  for (let i = 0; i < n; i++) next = audit(next, { result: "FAIL", reason: "UNKNOWN", codeEntered: `GUESS${1000 + i}`, accountId: `acc_other_${i % 4}`, email: `other${i % 4}@example.com`, deviceId: `dev-other-${i % 4}` });
+  for (let i = 0; i < n; i++) next = audit(next, { result: "FAIL", reason: "UNKNOWN", codeEntered: `GUESS${1000 + i}`, accountId: `acc_other_${i % 4}`, email: `other${i % 4}@example.com` });
   next = applyRateLimit(next);
   return toast(next, `${n} failed attempts from other accounts on this IP were added.`, "info");
 }
@@ -2062,7 +2086,7 @@ export function simulateLastSlot(s: AppState, codeId: string): AppState {
   let next: AppState = { ...s, vouchers: { ...s.vouchers, codes: s.vouchers.codes.map((x) => (x.id === codeId ? { ...x, used } : x)) } };
   const code = { ...c0, used };
   for (let i = 0; i < 50; i++) {
-    const who = { accountId: `acc_load_${i + 1}`, email: `load${i + 1}@example.com`, ip: `203.0.113.${i + 1}`, deviceId: `dev-load-${i + 1}` };
+    const who = { accountId: `acc_load_${i + 1}`, email: `load${i + 1}@example.com`, ip: `203.0.113.${i + 1}` };
     if (i === 0) {
       const start = startOfDayUTC(next.now);
       next = {
@@ -2070,7 +2094,7 @@ export function simulateLastSlot(s: AppState, codeId: string): AppState {
         vouchers: {
           ...next.vouchers!,
           codes: next.vouchers!.codes.map((x) => (x.id === codeId ? { ...x, used: x.maxRedemptions } : x)),
-          redemptions: [{ id: uid("rd"), codeId, campaign: code.campaign, accountId: who.accountId, at: next.now, ip: who.ip, deviceId: who.deviceId, endsAt: addMonthsClamped(start, code.months, dayOfMonthUTC(start)) }, ...next.vouchers!.redemptions],
+          redemptions: [{ id: uid("rd"), codeId, campaign: code.campaign, accountId: who.accountId, at: next.now, ip: who.ip, endsAt: addMonthsClamped(start, code.months, dayOfMonthUTC(start)) }, ...next.vouchers!.redemptions],
         },
       };
       next = audit(next, { result: "SUCCESS", reason: "SUCCESS", codeEntered: code.code, code, ...who });
@@ -2078,5 +2102,5 @@ export function simulateLastSlot(s: AppState, codeId: string): AppState {
       next = audit(next, { result: "FAIL", reason: "EXHAUSTED", codeEntered: code.code, code, ...who });
     }
   }
-  return toast(next, `50 parallel claims on the last slot of ${code.code}: 1 success, 49 "fully redeemed". Quota ${code.maxRedemptions} of ${code.maxRedemptions}.`, "info");
+  return toast(next, `50 parallel claims on the last slot of ${code.code}: 1 success, 49 "no longer available". Quota ${code.maxRedemptions} of ${code.maxRedemptions}.`, "info");
 }
