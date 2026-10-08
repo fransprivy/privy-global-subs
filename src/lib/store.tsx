@@ -27,7 +27,7 @@ interface StoreApi {
   dismissToast: () => void;
   completeSubscription: (input: E.CheckoutInput) => void;
   upgradeNow: (input: E.UpgradeInput) => void;
-  scheduleChange: (input: { kind: ChangeKind; tier: PaidTier; interval: Interval; seats: number }) => void;
+  scheduleChange: (input: { kind: ChangeKind; tier: PaidTier; interval: Interval; seats: number }, consentText?: string) => void;
   undoScheduledChange: () => void;
   cancelAtPeriodEnd: (reason?: string) => void;
   resume: (consentText: string) => void;
@@ -166,7 +166,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       dismissToast: () => update((s) => ({ ...s, ui: { ...s.ui, toast: null } })),
       completeSubscription: (input) => update((s) => E.completeSubscription(s, input)),
       upgradeNow: (input) => update((s) => E.upgradeNow(s, input)),
-      scheduleChange: (input) => update((s) => E.scheduleChange(s, input)),
+      scheduleChange: (input, consentText) => update((s) => E.scheduleChange(s, input, consentText)),
       undoScheduledChange: () => update((s) => E.undoScheduledChange(s)),
       cancelAtPeriodEnd: (reason) => update((s) => E.cancelAtPeriodEnd(s, reason)),
       resume: (consentText) => update((s) => E.resumeSubscription(s, consentText)),

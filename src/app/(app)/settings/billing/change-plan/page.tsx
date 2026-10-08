@@ -22,7 +22,7 @@ export default function ChangePlanPage() {
 
   const applyLine = sub
     ? sub.status === "cancel_scheduled"
-      ? `Your plan ends on ${fmtDate(sub.currentPeriodEnd)}. Resume it from Billing to change plans.`
+      ? `Your plan ends on ${fmtDate(sub.currentPeriodEnd)}. Choosing a plan below keeps your subscription and removes the cancellation.`
       : `Upgrades can start today or on ${fmtDate(sub.currentPeriodEnd)}. Downgrades take effect on ${fmtDate(sub.currentPeriodEnd)}.`
     : isPromoUser(s)
       ? `Your free period runs until ${fmtDate(prepaidEnd(s)!)}. A paid plan can start today or on that date.`

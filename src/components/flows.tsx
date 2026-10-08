@@ -222,8 +222,8 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
           setCheckoutMode("upgrade");
           setStep("checkout");
         }}
-        onScheduled={() => {
-          api.scheduleChange({ kind: "scheduled_upgrade", tier, interval, seats });
+        onScheduled={(consentText) => {
+          api.scheduleChange({ kind: "scheduled_upgrade", tier, interval, seats }, consentText);
           close();
         }}
       />
@@ -252,8 +252,8 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
         seats={tier === "business" ? sub.seats : 1}
         kind={direction === "tier_down" ? "downgrade" : "interval_down"}
         close={close}
-        onConfirm={() => {
-          api.scheduleChange({ kind: direction === "tier_down" ? "downgrade" : "interval_down", tier, interval, seats: tier === "business" ? sub.seats : 1 });
+        onConfirm={(consentText) => {
+          api.scheduleChange({ kind: direction === "tier_down" ? "downgrade" : "interval_down", tier, interval, seats: tier === "business" ? sub.seats : 1 }, consentText);
           close();
         }}
       />
@@ -265,7 +265,7 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
 }
 
 /* M-02 */
-function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onScheduled }: { tier: PaidTier; interval: Interval; seats: number; setSeats: (n: number) => void; close: () => void; onNow: () => void; onScheduled: () => void }) {
+function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onScheduled }: { tier: PaidTier; interval: Interval; seats: number; setSeats: (n: number) => void; close: () => void; onNow: () => void; onScheduled: (consentText?: string) => void }) {
   const { s } = useAppState();
   const sub = activeSubscription(s)!;
   const today = startOfDayUTC(s.now);
@@ -276,6 +276,10 @@ function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onS
   const pendingNote = sub.scheduledChange || sub.cancelAtPeriodEnd;
   const pastDue = sub.status === "past_due";
   const newEndNow = periodEnd(today, interval, dayOfMonthUTC(today));
+  const cancelled = sub.cancelAtPeriodEnd;
+  const [renewConsent, setRenewConsent] = useState(false);
+  const renewText = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(interval)} from ${fmtDate(sub.currentPeriodEnd)} until I cancel.`;
+  const scheduleNow = () => onScheduled(cancelled ? renewText : undefined);
 
   const Primary = ({ onClick, children }: { onClick: () => void; children: React.ReactNode }) => (
     <button className="btn-primary h-12 w-full text-base" onClick={onClick}>
@@ -302,17 +306,23 @@ function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onS
   );
   const laterBtn = (
     <div className="space-y-1">
+      {cancelled && (
+        <Checkbox checked={renewConsent} onChange={setRenewConsent} id="upgrade-renew-consent">
+          {renewText}
+        </Checkbox>
+      )}
       {scheduledPrimary ? (
-        <Primary onClick={onScheduled}>
+        <button className="btn-primary h-12 w-full text-base" disabled={cancelled && !renewConsent} onClick={scheduleNow}>
           Upgrade on {fmtDate(sub.currentPeriodEnd)} instead <IconArrowRight size={16} />
-        </Primary>
+        </button>
       ) : (
-        <Secondary onClick={onScheduled}>Upgrade on {fmtDate(sub.currentPeriodEnd)} instead</Secondary>
+        <button className="btn-secondary h-12 w-full text-base" disabled={cancelled && !renewConsent} onClick={scheduleNow}>
+          Upgrade on {fmtDate(sub.currentPeriodEnd)} instead
+        </button>
       )}
       <p className="text-center text-xs text-muted">Nothing charged until then. Nothing lost. You can undo any time before.</p>
     </div>
   );
-
   return (
     <Modal open onClose={close} title={`Upgrade to ${TIER_LABEL[tier]}`} spec="M-02" width="max-w-xl">
       <div className="space-y-4">
@@ -425,7 +435,7 @@ function IntervalUpModal({ tier, seats, close, onContinue }: { tier: PaidTier; s
 }
 
 /* M-04 and M-04b */
-function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tier: PaidTier; interval: Interval; seats: number; kind: "downgrade" | "interval_down"; close: () => void; onConfirm: () => void }) {
+function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tier: PaidTier; interval: Interval; seats: number; kind: "downgrade" | "interval_down"; close: () => void; onConfirm: (consentText?: string) => void }) {
   const { s } = useAppState();
   const flows = useFlows();
   const sub = activeSubscription(s)!;
@@ -434,12 +444,16 @@ function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tie
   const losses = kind === "downgrade" ? downgradeLosses(s) : [];
   const isBusinessDown = kind === "downgrade" && sub.tier === "business";
   const [understood, setUnderstood] = useState(kind !== "downgrade");
+  const cancelled = sub.cancelAtPeriodEnd;
+  const [renewConsent, setRenewConsent] = useState(false);
+  const renewText = `I agree that Privy will charge ${fmtMoney(newAmount)} to my card every ${intervalWord(interval)} from ${fmtDate(effective)} until I cancel.`;
+  const teamDocs = isBusinessDown ? (s.workspace.documents ?? []).length : 0;
 
   return (
     <Modal
       open
       onClose={close}
-      title={kind === "downgrade" ? `Change to ${planName(tier, interval)} on ${fmtDate(effective)}` : `Switch to monthly billing from ${fmtDate(effective)}`}
+      title={cancelled ? `Resume and switch to ${planName(tier, interval)} on ${fmtDate(effective)}` : kind === "downgrade" ? `Change to ${planName(tier, interval)} on ${fmtDate(effective)}` : `Switch to monthly billing from ${fmtDate(effective)}`}
       spec={kind === "downgrade" ? "M-04" : "M-04b"}
       width="max-w-xl"
       footer={
@@ -447,8 +461,8 @@ function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tie
           <button className="btn-secondary" onClick={close}>
             Keep {planName(sub.tier, sub.interval)}
           </button>
-          <button className="btn-primary" disabled={!understood} onClick={onConfirm}>
-            Schedule change
+          <button className="btn-primary" disabled={!understood || (cancelled && !renewConsent)} onClick={() => onConfirm(cancelled ? renewText : undefined)}>
+            {cancelled ? "Resume and schedule change" : "Schedule change"}
           </button>
         </>
       }
@@ -472,7 +486,7 @@ function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tie
                 className="mt-3 flex items-center gap-2 text-sm font-semibold text-maroon underline-offset-2 hover:underline"
                 onClick={() => flows.open({ type: "handover" })}
               >
-                <IconHandover size={16} /> Hand over team documents first <Spec id="UX-08" />
+                <IconHandover size={16} /> Hand over {teamDocs > 0 ? `${teamDocs} team document${teamDocs === 1 ? "" : "s"}` : "team documents"} first <Spec id="UX-08" />
               </button>
             )}
           </div>
@@ -488,6 +502,14 @@ function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tie
           <Checkbox checked={understood} onChange={setUnderstood} id="dg-ack">
             I understand what changes on {fmtDate(effective)}.
           </Checkbox>
+        )}
+        {cancelled && (
+          <>
+            <p className="rounded-lg bg-info-tint px-3 py-2 text-xs text-info">Your plan is cancelled. Scheduling this change keeps your subscription and removes the cancellation.</p>
+            <Checkbox checked={renewConsent} onChange={setRenewConsent} id="dg-renew-consent">
+              {renewText}
+            </Checkbox>
+          </>
         )}
       </div>
     </Modal>
@@ -563,9 +585,9 @@ function CancelModal({ close }: { close: () => void }) {
         </p>
         {isBusiness && (
           <div className="rounded-xl border border-[#f2b9a5] bg-[#fff4ee] p-4 text-sm">
-            <p className="font-semibold text-ink">Your workspace {s.workspace.name} closes on {fmtDate(accessUntil)}</p>
+            <p className="font-semibold text-ink">Your workspace {s.workspace.name} becomes read-only on {fmtDate(accessUntil)}</p>
             <p className="mt-1 text-ink-2">
-              {Math.max(0, s.workspace.members.length - 1)} team members lose access; automations, retention policies, e-Seal and branding turn off. Signed documents are never deleted; the workspace is recoverable for 90 days if you resubscribe.
+              You and {Math.max(0, s.workspace.members.length - 1)} team members can still view, download and hand over envelopes. Reactivate Pro any time to sign and send again.
             </p>
             <button className="mt-2 flex items-center gap-2 text-sm font-semibold text-maroon underline-offset-2 hover:underline" onClick={() => flows.open({ type: "handover" })}>
               <IconHandover size={16} /> Hand over team documents first

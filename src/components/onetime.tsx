@@ -38,7 +38,7 @@ export function PurchaseTypeModal({
     <Modal
       open
       onClose={close}
-      title="How do you want to pay?"
+      title={oneTime && pe ? `Change your plan from ${fmtDate(pe)}` : "How do you want to pay?"}
       spec="M-10"
       width="max-w-xl"
       footer={
@@ -61,7 +61,7 @@ export function PurchaseTypeModal({
         <TypeCard
           on={choice === "recurring"}
           onClick={() => setChoice("recurring")}
-          title="Auto-renewal"
+          title={oneTime ? "Turn on auto-renewal" : "Auto-renewal"}
           badge="Recommended"
           lines={[
             "Pay with a credit or debit card. We charge it automatically every " + intervalWord(interval) + ".",
@@ -72,7 +72,7 @@ export function PurchaseTypeModal({
         <TypeCard
           on={choice === "one_time"}
           onClick={() => setChoice("one_time")}
-          title="One-time purchase"
+          title={oneTime ? "Pay once for the next period" : "One-time purchase"}
           lines={[
             "Pay for this period only with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card.",
             "We send you a bill 7 days before the plan expires. Pay it to continue, or let it expire.",
@@ -207,6 +207,9 @@ export function OneTimeCheckoutDrawer({
                 {fmtMoney(bill.amount)} <span className="text-sm font-normal text-muted">for {fmtDate(bill.periodStart)} to {fmtDate(bill.periodEnd)}</span>
               </p>
               <p className="mt-1 text-sm text-ink-2">Bill issued {fmtDate(bill.issuedAt)}. Pay before {fmtDate(bill.dueAt)}; the plan expires on that date if unpaid.</p>
+              <Link href="/settings/billing/change-plan" onClick={close} className="mt-2 inline-block text-sm font-medium text-maroon underline-offset-2 hover:underline">
+                Change plan for next period
+              </Link>
             </div>
           ) : (
             <div className="space-y-3">

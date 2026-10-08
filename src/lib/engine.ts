@@ -1224,9 +1224,11 @@ function ordinal(n: number): string {
 /** Rule D (downgrade) and scheduled upgrade: change at period end, nothing charged now. */
 export function scheduleChange(
   s: AppState,
-  input: { kind: ChangeKind; tier: PaidTier; interval: Interval; seats: number }
+  input: { kind: ChangeKind; tier: PaidTier; interval: Interval; seats: number },
+  consentText?: string
 ): AppState {
   const sub = activeSubscription(s)!;
+  const wasCancelled = sub.cancelAtPeriodEnd;
   const change = {
     kind: input.kind,
     tier: input.tier,
@@ -1245,6 +1247,10 @@ export function scheduleChange(
     },
   };
   const newAmount = fmtMoney(planPrice(input.tier, input.interval, input.seats));
+  if (wasCancelled) {
+    next = addConsent(next, { source: "resume", text: consentText ?? "", amount: planPrice(input.tier, input.interval, input.seats), interval: input.interval });
+    next = addHistory(next, "resumed", "Cancellation removed", `The plan change keeps the subscription. Auto-renewal is on again from ${fmtDate(change.effectiveAt)}.`);
+  }
   next = addHistory(
     next,
     "change_scheduled",

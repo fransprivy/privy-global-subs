@@ -218,7 +218,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         body: [
           `On ${c.effectiveDate} your plan changes from ${c.oldPlanName} to ${c.newPlanName}.`,
           c.isBusiness && c.memberCount > 0
-            ? `${c.memberCount} team members will lose access to ${c.workspaceName}. Hand over team documents first if you have not already.`
+            ? `${c.workspaceName} becomes read-only for you and ${c.memberCount} team members on that date. Hand over team documents before then if they should stay with you.`
             : `Nothing to do if that is what you want.`,
         ],
         cta: { label: "Keep my current plan", href: `${planPage}?action=undo` },
