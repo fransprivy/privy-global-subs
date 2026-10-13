@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { activeSubscription, cardExpiresBefore, convertEligible, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, isPromoUser, openBill, planName, planPrice, prepaidEnd, workspaceView } from "@/lib/engine";
+import { BILL_LEAD_DAYS } from "@/lib/catalog";
+import { activeSubscription, cardExpiresBefore, currentTier, graceDaysLeft, isOneTimeUser, isPrepaidUser, isPromoUser, openBill, planName, planPrice, prepaidEnd, workspaceView } from "@/lib/engine";
 import { daysBetween, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import { useFlows } from "./flows";
@@ -97,19 +98,13 @@ export function Banners() {
       <Banner key="b02" tone="info" icon={<IconClock size={20} />} spec="B-02">
         <div className="flex-1">
           <p className="font-semibold">
-            Your plan changes to {planName(c.tier, c.interval)} on {fmtDate(c.effectiveAt)}.
+            Your billing switches to {c.interval === "annual" ? "yearly" : "monthly"} on {fmtDate(c.effectiveAt)}.
           </p>
           <p className="text-xs opacity-80">
             You keep {planName(sub.tier, sub.interval)} until then. From {fmtDate(c.effectiveAt)} you pay {fmtMoney(planPrice(c.tier, c.interval, c.seats))} per {c.interval === "monthly" ? "month" : "year"}.
-            {c.kind === "downgrade" && sub.tier === "business" && " Team members lose access on that date."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {c.kind === "downgrade" && sub.tier === "business" && (
-            <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "handover" })}>
-              <IconHandover size={14} /> Hand over documents
-            </button>
-          )}
           <button className="btn-secondary !py-1.5 text-xs" onClick={() => api.undoScheduledChange()}>
             Keep my current plan
           </button>
@@ -182,31 +177,27 @@ export function Banners() {
     );
   }
 
-  // Indonesia one-time plans: B-06 bill due, B-07 checkout still open, B-08 expired.
+  // Indonesia manual payment: B-06 plan ending reminder (D-7 to D-0), B-07 checkout still open, B-08 ended.
   const bill = openBill(s);
-  if (isOneTimeUser(s) && bill && bill.status === "awaiting") {
-    const dl = Math.max(0, daysBetween(startOfDayUTC(s.now), bill.dueAt));
+  const manualEnd = isOneTimeUser(s) ? prepaidEnd(s) : null;
+  const manualLeft = manualEnd ? daysBetween(startOfDayUTC(s.now), manualEnd) : null;
+  if (manualEnd && manualLeft !== null && manualLeft <= BILL_LEAD_DAYS && !(bill && bill.status === "pending_payment")) {
+    const last = s.prepaid!.periods.find((p) => p.end === manualEnd);
+    const members = s.workspace.members.length - 1;
     items.push(
-      <Banner key="b06" tone={dl <= 1 ? "danger" : "warn"} icon={<IconClock size={20} />} spec="B-06">
+      <Banner key="b06" tone={manualLeft <= 1 ? "danger" : "warn"} icon={<IconClock size={20} />} spec="B-06">
         <div className="flex-1">
           <p className="font-semibold">
-            Your {planName(bill.tier, bill.interval)} bill of {fmtMoney(bill.amount)} is due by {fmtDate(bill.dueAt)} ({dl === 0 ? "today" : `${dl} day${dl === 1 ? "" : "s"} left`}).
+            Your {last ? planName(last.tier, last.interval) : "plan"} ends on {fmtDate(manualEnd)} ({manualLeft === 0 ? "today" : `${manualLeft} day${manualLeft === 1 ? "" : "s"} left`}).
           </p>
           <p className="text-xs opacity-80">
-            Pay it to keep your plan running to {fmtDate(bill.periodEnd)}. If it is not paid, your plan ends on {fmtDate(bill.dueAt)} with no grace period
-            {bill.tier === "business" && s.workspace.members.length > 1 ? ` and ${s.workspace.members.length - 1} team member${s.workspace.members.length > 2 ? "s" : ""} lose signing access` : ""}.
+            It does not renew automatically and there is nothing to pay yet. After it ends your account moves to Free
+            {s.prepaid?.tier === "business" && members > 0 ? ` and ${members} team member${members > 1 ? "s" : ""} lose signing access` : ""}. Buy again after that date, or turn on auto-renewal now to continue without a gap.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {convertEligible(s) && (
-            <button className="btn-secondary !py-1.5 text-xs" onClick={() => flows.open({ type: "convert" })}>
-              Switch to auto-renewal
-            </button>
-          )}
-          <button className="btn-primary !py-1.5 text-xs" onClick={() => flows.open({ type: "payBill", billId: bill.id })}>
-            Pay bill
-          </button>
-        </div>
+        <button className="btn-primary !py-1.5 text-xs" onClick={() => flows.open({ type: "convert" })}>
+          Turn on auto-renewal
+        </button>
       </Banner>
     );
   }
@@ -228,12 +219,12 @@ export function Banners() {
       </Banner>
     );
   }
-  if (!sub && !s.prepaid && currentTier(s) === "free" && s.history[0]?.type === "bill_expired") {
+  if (!sub && !s.prepaid && currentTier(s) === "free" && s.history.slice(0, 2).some((h) => h.type === "bill_expired")) {
     items.push(
       <Banner key="b08" tone="warn" icon={<IconWarning size={20} />} spec="B-08">
         <div className="flex-1">
-          <p className="font-semibold">Your plan expired because the bill was not paid.</p>
-          <p className="text-xs opacity-80">Your documents are kept. Buy a plan to get your limits back, or turn on auto-renewal so this does not happen again.</p>
+          <p className="font-semibold">Your plan has ended and your account is on Free.</p>
+          <p className="text-xs opacity-80">Your documents are kept. Buy a plan any time: it starts on the day you pay. Choose auto-renewal so it continues by itself.</p>
         </div>
         <Link href="/plans" className="btn-primary !py-1.5 text-xs">
           Buy a plan

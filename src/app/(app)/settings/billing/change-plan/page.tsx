@@ -7,7 +7,7 @@ import { CompareTable, PlanCards } from "@/components/PlanCards";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, Toggle } from "@/components/ui";
 import { ENVELOPE_LIMIT, TEMPLATE_LIMIT } from "@/lib/catalog";
-import { activeSubscription, currentInterval, currentPlanName, currentTier, isPrepaidUser, planPrice, prepaidEnd, isPromoUser } from "@/lib/engine";
+import { activeSubscription, currentInterval, currentPlanName, currentTier, isOneTimeUser, isPrepaidUser, planPrice, prepaidEnd, isPromoUser } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval } from "@/lib/types";
@@ -23,11 +23,15 @@ export default function ChangePlanPage() {
   const applyLine = sub
     ? sub.status === "cancel_scheduled"
       ? `Your plan ends on ${fmtDate(sub.currentPeriodEnd)}. Choosing a plan below keeps your subscription and removes the cancellation.`
-      : `Upgrades can start today or on ${fmtDate(sub.currentPeriodEnd)}. Downgrades take effect on ${fmtDate(sub.currentPeriodEnd)}.`
+      : sub.tier === "business"
+        ? `Upgrades start today. Monthly and yearly switches take effect on ${fmtDate(sub.currentPeriodEnd)}. To move to Personal, cancel Pro and buy Personal after it ends.`
+        : `Upgrades start today. Monthly and yearly switches take effect on ${fmtDate(sub.currentPeriodEnd)}.`
     : isPromoUser(s)
       ? `Your free period runs until ${fmtDate(prepaidEnd(s)!)}. A paid plan can start today or on that date.`
+      : isOneTimeUser(s)
+      ? `Your plan is paid until ${fmtDate(prepaidEnd(s)!)}. An upgrade starts today and the remaining days are not refunded. Buy your next period, monthly or yearly, after ${fmtDate(prepaidEnd(s)!)}.`
       : prepaid
-      ? `Your current plan runs until ${fmtDate(prepaidEnd(s)!)}. Any change starts on that date.`
+      ? `Your prepaid plan runs until ${fmtDate(prepaidEnd(s)!)}. An upgrade starts today and the remaining days are not refunded. To keep your plan after that date, turn on auto-renewal.`
       : "Your new plan will apply starting today.";
 
   return (
@@ -58,7 +62,7 @@ export default function ChangePlanPage() {
                 {sub
                   ? `Billed ${sub.interval === "monthly" ? "monthly" : "yearly"} · ${fmtMoney(planPrice(sub.tier, sub.interval, sub.seats))}${sub.tier === "business" ? ` for ${sub.seats} seats` : ""} · ${sub.status === "cancel_scheduled" ? "ends" : "renews"} ${fmtDate(sub.currentPeriodEnd)}`
                   : prepaid
-                    ? `Prepaid until ${fmtDate(prepaidEnd(s)!)}`
+                    ? `${isOneTimeUser(s) ? "Manual payment, paid" : "Prepaid"} until ${fmtDate(prepaidEnd(s)!)}`
                     : "Billed monthly"}
               </p>
             </div>

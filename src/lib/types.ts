@@ -26,7 +26,7 @@ export interface Card {
   addedAt: string;
 }
 
-export type ChangeKind = "downgrade" | "interval_down" | "scheduled_upgrade";
+export type ChangeKind = "interval_up" | "interval_down";
 
 /** A subscription that starts when a voucher benefit ends: free until `until`, first charge on that date. */
 export interface PromoCarry {
@@ -196,7 +196,8 @@ export type HistoryType =
   | "promo_ended"
   | "role_changed"
   | "envelope_sent"
-  | "note";
+  | "note"
+  | "card_checked";
 
 export interface HistoryEvent {
   id: string;

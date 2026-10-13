@@ -1,7 +1,7 @@
 import { setActiveRegion } from "./catalog";
 import { ACCOUNT_ID, DEFAULT_VOUCHER_CONFIG, planPrice } from "./engine";
 import { invoiceNumber } from "./format";
-import type { AppState, Bill, Card, Interval, Invoice, OtherWorkspace, PaidTier, Region, Subscription, Task, VoucherCode, VoucherRedemption, VoucherState, Workspace } from "./types";
+import type { AppState, Card, Interval, Invoice, OtherWorkspace, PaidTier, Region, Subscription, Task, VoucherCode, VoucherRedemption, VoucherState, Workspace } from "./types";
 
 export const NOW = "2026-09-10T09:00:00.000Z";
 
@@ -10,7 +10,7 @@ export interface ScenarioMeta {
   title: string;
   persona: string;
   description: string;
-  tag: "Start here" | "Upgrade" | "Downgrade" | "Failure" | "Migration" | "Cancel" | "Indonesia" | "Workspaces" | "Vouchers";
+  tag: "Start here" | "Upgrade" | "Billing switch" | "Failure" | "Migration" | "Cancel" | "Indonesia" | "Workspaces" | "Vouchers";
 }
 
 export const SCENARIOS: ScenarioMeta[] = [
@@ -25,22 +25,22 @@ export const SCENARIOS: ScenarioMeta[] = [
     id: "personal-monthly",
     title: "Personal Monthly subscriber",
     persona: "Frans, Personal Monthly since 10 Aug 2026, renews 10 Oct",
-    description: "A month into a monthly plan with a saved Visa. Every plan change is one click away.",
+    description: "A month into a monthly plan with a saved Visa. Upgrade to Pro (starts today), switch to yearly (from the renewal date), or cancel.",
     tag: "Upgrade",
   },
   {
     id: "personal-annual",
     title: "Personal Annual, 200 days left",
     persona: "Frans, Personal Yearly, paid until 29 Mar 2027",
-    description: "The highest-risk matrix cell: upgrading now would forfeit 200 prepaid days. The scheduled option is the primary button here.",
+    description: "Upgrading to Pro starts today and forfeits 200 prepaid days, so the modal asks you to acknowledge it. Switching to monthly is scheduled for the renewal date.",
     tag: "Upgrade",
   },
   {
     id: "business-owner",
     title: "Pro owner, 8 seats",
     persona: "Frans, owner of 'Privy Product Team' (Pro Monthly × 8 seats, 6 in use), Visa default + Mastercard backup",
-    description: "Owns a Pro workspace and gets the owner perk in the Individual workspace (Personal with unlimited envelopes). Switch workspaces from the avatar menu, invite members, add or remove seats (prorated to the one renewal date), manage backup cards, or downgrade and read the live loss checklist.",
-    tag: "Downgrade",
+    description: "Owns a Pro workspace and gets the owner perk in the Individual workspace (Personal with unlimited envelopes). Switch workspaces from the avatar menu, invite members, add or remove seats (prorated to the one renewal date), manage backup cards, or see how moving to Personal works (cancel Pro, buy Personal after).",
+    tag: "Workspaces",
   },
   {
     id: "past-due",
@@ -50,11 +50,11 @@ export const SCENARIOS: ScenarioMeta[] = [
     tag: "Failure",
   },
   {
-    id: "pending-downgrade",
-    title: "Downgrade scheduled",
-    persona: "Frans, Pro Monthly × 3, changing to Personal Monthly on 1 Oct",
-    description: "A scheduled change waiting to take effect. Shows the pending banner with undo, and what happens on the effective date.",
-    tag: "Downgrade",
+    id: "pending-switch",
+    title: "Yearly switch scheduled",
+    persona: "Frans, Pro Monthly × 3, switching to Pro Yearly on 1 Oct",
+    description: "A monthly to yearly switch waiting for the period end. Nothing was charged when it was requested. Shows the banner with undo, and the first yearly charge on the effective date.",
+    tag: "Billing switch",
   },
   {
     id: "cancel-scheduled",
@@ -80,8 +80,8 @@ export const SCENARIOS: ScenarioMeta[] = [
   {
     id: "business-member-personal",
     title: "Personal subscriber who is also a member",
-    persona: "Frans, Personal Monthly (3 of 50 envelopes left), admin in Kenny's Pro (plan ending 1 Oct) and member of PT Privy (Demo) Enterprise",
-    description: "Own Personal plan keeps its 50-envelope limit; send 3 more and the paywall appears. Kenny cancelled his Pro plan, so his workspace warns members it turns read-only on Oct 1. Buying Pro here creates your own workspace and unlocks unlimited envelopes for you.",
+    persona: "Frans, Personal Monthly (unlimited envelopes), admin in Kenny's Pro (plan ending 1 Oct) and member of PT Privy (Demo) Enterprise",
+    description: "Own Personal plan has unlimited envelopes but no team workspace of its own. Kenny cancelled his Pro plan, so his workspace warns members it turns read-only on Oct 1. Buying Pro here creates your own dedicated workspace where you can invite members.",
     tag: "Workspaces",
   },
   {
@@ -135,16 +135,16 @@ export const SCENARIOS: ScenarioMeta[] = [
   },
   {
     id: "id-onetime-card",
-    title: "Indonesia: one-time plan, bill due in 5 days",
-    persona: "Frans, Personal Monthly paid once by card, active until 15 Sep, bill issued 8 Sep",
-    description: "The T-7 bill is waiting. Pay it with QRIS, card or virtual account, ignore it and watch the plan end with no grace, or take the offer to switch to auto-renewal (shown because the last payment was by card).",
+    title: "Indonesia: manual payment, ends in 5 days",
+    persona: "Frans, Personal Monthly paid manually by card, active until 15 Sep",
+    description: "The D-7 reminder went out; there is nothing to pay yet. Turn on auto-renewal (card on Doku, Rp 10,000 check reversed, first charge on 15 Sep), upgrade to Pro (starts today, remaining days forfeited), or let it end and buy again on Free.",
     tag: "Indonesia",
   },
   {
     id: "id-onetime-qris",
-    title: "Indonesia: Pro paid by QRIS, expires in 2 days",
-    persona: "Frans, Pro Monthly × 3 seats paid once via QRIS, active until 12 Sep",
-    description: "Reminder emails went out at T-3. No auto-renewal offer on the banner (not a card payer), but it is still findable under Billing › Payment methods. Let it expire to see the workspace close on the expiry date.",
+    title: "Indonesia: Pro paid by QRIS, ends in 2 days",
+    persona: "Frans, Pro Monthly × 3 seats paid manually via QRIS, active until 12 Sep",
+    description: "Reminders went out at D-7 and D-3. Any manual user can turn on auto-renewal, QRIS payers included. Let it end to see the account move to Free and the workspace turn read-only; then buy Pro again, starting that day.",
     tag: "Indonesia",
   },
   {
@@ -472,7 +472,7 @@ export function buildScenario(id: string): AppState {
         consents: [{ id: "c1", at: "2026-06-03T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$7.49 to my card every month starting today until I cancel.", amount: 7.49, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
-    case "pending-downgrade": {
+    case "pending-switch": {
       const start = "2026-09-01T00:00:00.000Z";
       const end = "2026-10-01T00:00:00.000Z";
       return {
@@ -490,7 +490,7 @@ export function buildScenario(id: string): AppState {
           status: "change_scheduled",
           renewalCount: 1,
           createdAt: "2026-08-01T09:00:00.000Z",
-          scheduledChange: { kind: "downgrade", tier: "personal", interval: "monthly", seats: 1, effectiveAt: end, createdAt: "2026-09-08T10:00:00.000Z" },
+          scheduledChange: { kind: "interval_up", tier: "business", interval: "annual", seats: 3, effectiveAt: end, createdAt: "2026-09-08T10:00:00.000Z" },
         }),
         usage: { envelopesSent: 66, templates: 12, contacts: 90 },
         invoices: [
@@ -498,12 +498,12 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-08-01T09:00:00.000Z", "business", "monthly", 3, "2026-08-01T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h3", at: "2026-09-08T10:00:00.000Z", type: "change_scheduled", title: "Downgrade to Personal Monthly scheduled for Oct 1, 2026", detail: "Nothing charged today. A$7.49 will be charged on Oct 1, 2026. You can undo until then." },
+          { id: "h3", at: "2026-09-08T10:00:00.000Z", type: "change_scheduled", title: "Switch to Pro Yearly scheduled for Oct 1, 2026", detail: "Nothing charged today. A$1,188.00 will be charged on Oct 1, 2026. You can undo until then." },
           { id: "h2", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$115.50 for Sep 1, 2026 to Oct 1, 2026." },
           { id: "h1", at: "2026-08-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 3 seats" },
         ],
         emails: [
-          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your plan change is scheduled for Oct 1, 2026", body: ["You keep Pro Monthly until Oct 1, 2026. From then you are on Personal Monthly at A$7.49 per month.", "Changed your mind? Keep your current plan with one click."], cta: { label: "Keep my current plan", href: "/settings/billing?action=undo" } },
+          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your billing switches to yearly on Oct 1, 2026", body: ["You stay on Pro Monthly until Oct 1, 2026. From then you are on Pro Yearly, A$1,188.00 per year, charged to card ending 4242. Nothing is charged today.", "Changed your mind? Keep your current billing with one click before Oct 1, 2026."], cta: { label: "Keep my current billing", href: "/settings/billing?action=undo" } },
         ],
         consents: [{ id: "c1", at: "2026-08-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$115.50 to my card every month starting today until I cancel.", amount: 115.5, interval: "monthly", ip: "103.28.114.20" }],
       };
@@ -664,22 +664,17 @@ export function buildScenario(id: string): AppState {
     case "id-onetime-card": {
       const start = "2026-08-15T00:00:00.000Z";
       const end = "2026-09-15T00:00:00.000Z";
-      const nextEnd = "2026-10-15T00:00:00.000Z";
-      const amount = planPrice("personal", "monthly", 1);
-      const bill: Bill = { id: "bill_1", kind: "renewal", tier: "personal", interval: "monthly", seats: 1, amount, periodStart: end, periodEnd: nextEnd, issuedAt: "2026-09-08T00:00:00.000Z", dueAt: end, status: "awaiting", payment: null };
       return {
         ...s,
         card: VISA,
         prepaid: { tier: "personal", source: "one_time", periods: [{ start, end, tier: "personal", interval: "monthly", purchasedAt: "2026-08-15T09:00:00.000Z", seats: 1, paidWith: "card", paidWithLabel: "Card ending 4242" }] },
-        bills: [bill],
         usage: { envelopesSent: 9, templates: 3, contacts: 14 },
         invoices: [{ ...paidInvoice(1, "2026-08-15T09:00:00.000Z", "personal", "monthly", 1, start, end), method: "Card ending 4242" }],
         history: [
-          { id: "h2", at: "2026-09-08T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Personal Monthly for Sep 15, 2026 to Oct 15, 2026", detail: "Rp 54,000, pay before Sep 15, 2026 to continue without interruption. No automatic charge." },
-          { id: "h1", at: "2026-08-15T09:00:00.000Z", type: "bill_paid", title: "Paid Personal Monthly (one-time)", detail: "Rp 54,000 by Card ending 4242. Active Aug 15, 2026 to Sep 15, 2026. Card saved for future bills." },
+          { id: "h1", at: "2026-08-15T09:00:00.000Z", type: "bill_paid", title: "One-time purchase: Personal Monthly", detail: "Rp 54,000 via Card ending 4242. Active Aug 15, 2026 to Sep 15, 2026. No automatic renewal." },
         ],
         emails: [
-          { id: "e1", templateId: "N-30", at: "2026-09-08T00:00:00.000Z", to: USER.email, subject: "Your Privy Personal Monthly bill: pay by Sep 15, 2026", body: ["Your plan is active until Sep 15, 2026. To keep it running to Oct 15, 2026, pay Rp 54,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 15, 2026 and the account moves to Free."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+          { id: "e1", templateId: "N-30", at: "2026-09-08T00:00:00.000Z", to: USER.email, subject: "Your Privy Personal Monthly ends on Sep 15, 2026", body: ["Your Personal Monthly plan is paid until Sep 15, 2026. It does not renew automatically, and there is nothing to pay yet.", "After Sep 15, 2026 your account moves to Free (5 envelopes a month) with your documents kept. To continue, buy a new period on or after Sep 15, 2026; it starts on the day you pay.", "Prefer no gap? Turn on auto-renewal with a card now and we charge it on Sep 15, 2026."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" } },
         ],
         sentKeys: [`N-30:${end}`],
       };
@@ -687,24 +682,19 @@ export function buildScenario(id: string): AppState {
     case "id-onetime-qris": {
       const start = "2026-08-12T00:00:00.000Z";
       const end = "2026-09-12T00:00:00.000Z";
-      const nextEnd = "2026-10-12T00:00:00.000Z";
-      const amount = planPrice("business", "monthly", 3);
-      const bill: Bill = { id: "bill_1", kind: "renewal", tier: "business", interval: "monthly", seats: 3, amount, periodStart: end, periodEnd: nextEnd, issuedAt: "2026-09-05T00:00:00.000Z", dueAt: end, status: "awaiting", payment: null };
       return {
         ...s,
         workspace: workspace(true, 3),
         activeWorkspace: "business",
         prepaid: { tier: "business", source: "one_time", periods: [{ start, end, tier: "business", interval: "monthly", purchasedAt: "2026-08-12T09:00:00.000Z", seats: 3, paidWith: "qris", paidWithLabel: "QRIS" }] },
-        bills: [bill],
         usage: { envelopesSent: 41, templates: 8, contacts: 62 },
         invoices: [{ ...paidInvoice(1, "2026-08-12T09:00:00.000Z", "business", "monthly", 3, start, end), method: "QRIS" }],
         history: [
-          { id: "h2", at: "2026-09-05T00:00:00.000Z", type: "bill_issued", title: "Bill issued: Pro Monthly for Sep 12, 2026 to Oct 12, 2026", detail: "Rp 297,000, pay before Sep 12, 2026 to continue without interruption. No automatic charge." },
-          { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "Paid Pro Monthly × 3 seats (one-time)", detail: "Rp 297,000 by QRIS. Active Aug 12, 2026 to Sep 12, 2026." },
+          { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "One-time purchase: Pro Monthly × 3 seats", detail: "Rp 297,000 via QRIS. Active Aug 12, 2026 to Sep 12, 2026. No automatic renewal." },
         ],
         emails: [
-          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left to pay your Privy bill", body: ["Your Pro Monthly plan ends on Sep 12, 2026 unless the Rp 297,000 bill is paid before then.", "Pay with QRIS, card or virtual account. There is no grace period for one-time plans."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
-          { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro Monthly bill: pay by Sep 12, 2026", body: ["Your plan is active until Sep 12, 2026. To keep it running to Oct 12, 2026, pay Rp 297,000 before then.", "Nothing is charged automatically. If the bill is not paid, your plan ends on Sep 12, 2026 and the workspace is closed."], cta: { label: "Pay bill", href: "/settings/billing?action=pay-bill" } },
+          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left: your Privy Pro Monthly ends on Sep 12, 2026", body: ["Nothing to pay yet. On Sep 12, 2026 your account moves to Free; there is no grace period for manual payment. Your 2 team members in Privy Product Team lose signing access on that date. Buy again after it ends, or turn on auto-renewal now to continue without a gap."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" } },
+          { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro Monthly ends on Sep 12, 2026", body: ["Your Pro Monthly plan is paid until Sep 12, 2026. It does not renew automatically, and there is nothing to pay yet.", "After Sep 12, 2026 your account moves to Free (5 envelopes a month) with your documents kept, and Privy Product Team becomes read-only for your 2 team members. To continue, buy a new period on or after Sep 12, 2026; it starts on the day you pay.", "Prefer no gap? Turn on auto-renewal with a card now and we charge it on Sep 12, 2026."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" } },
         ],
         sentKeys: [`N-30:${end}`, `N-30b:T3:${end}`],
       };

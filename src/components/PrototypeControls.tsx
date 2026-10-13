@@ -37,9 +37,9 @@ export function PrototypeControls() {
       if (sub.nextRetryAt && daysBetween(today, sub.nextRetryAt) > 0) return { label: `next retry (${fmtDate(sub.nextRetryAt)})`, iso: sub.nextRetryAt };
       return { label: `end of grace (${fmtDate(sub.graceEndsAt)})`, iso: sub.graceEndsAt };
     }
-    if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "scheduled change" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
-    if (pe && isOneTimeUser(s) && !bill && daysBetween(today, pe) > CONFIG.billLeadDays) return { label: `bill day (${fmtDate(addDays(pe, -CONFIG.billLeadDays))})`, iso: addDays(pe, -CONFIG.billLeadDays) };
-    if (pe && isOneTimeUser(s)) return { label: `plan expiry (${fmtDate(pe)})`, iso: pe };
+    if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "billing switch" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
+    if (pe && isOneTimeUser(s) && daysBetween(today, pe) > CONFIG.billLeadDays) return { label: `D-7 reminder (${fmtDate(addDays(pe, -CONFIG.billLeadDays))})`, iso: addDays(pe, -CONFIG.billLeadDays) };
+    if (pe && isOneTimeUser(s)) return { label: `plan end (${fmtDate(pe)})`, iso: pe };
     if (pe && isPromoUser(s)) return { label: `end of free period (${fmtDate(pe)})`, iso: pe };
     if (pe) return { label: `end of prepaid time (${fmtDate(pe)})`, iso: pe };
     return null;
@@ -153,7 +153,7 @@ export function PrototypeControls() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-muted">
-                {pending ? `Open: ${pending.payment?.paymentId} for ${pending.payment?.method.toUpperCase()}${pending.payment?.bank ? ` ${pending.payment.bank}` : ""}. "Received" is what the payment gateway webhook would send.` : bill ? `Bill ${bill.id} is waiting; open it from Billing to create a Payment ID.` : "No Payment ID open. Bills appear 7 days before a one-time plan expires."}
+                {pending ? `Open: ${pending.payment?.paymentId} for ${pending.payment?.method.toUpperCase()}${pending.payment?.bank ? ` ${pending.payment.bank}` : ""}. "Received" is what the payment gateway webhook would send.` : bill ? `Bill ${bill.id} is waiting; open it from Billing to create a Payment ID.` : "No Payment ID open. Manual payment users buy a period from the plan page (QRIS, virtual account or card)."}
               </p>
             </Section>
           )}

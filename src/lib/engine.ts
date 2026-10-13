@@ -68,7 +68,7 @@ export const CONFIG = {
   changeReminderLeadDays: 3,
   migrationReminderDays: [30, 7, 1],
   smartDefaultThresholdDays: 14,
-  /** Indonesia one-time plans: bill issued this many days before expiry; reminders at these days-left; no grace. */
+  /** Indonesia manual payment: first reminder this many days before the end; follow-ups at these days-left; no grace. */
   billLeadDays: BILL_LEAD_DAYS,
   billReminderDays: BILL_REMINDER_DAYS,
   paymentIdValidHours: PAYMENT_ID_VALID_HOURS,
@@ -140,12 +140,13 @@ export function openBill(s: AppState): Bill | null {
 export function pendingPayment(s: AppState): Bill | null {
   return (s.bills ?? []).find((b) => b.status === "pending_payment") ?? null;
 }
-/** Phase 1: only one-time users whose last payment was by card see the convert-to-auto-renewal offer. */
+/** Any manual (one-time) user can turn on auto-renewal at any time; it starts when the current plan ends. */
 export function convertEligible(s: AppState): boolean {
-  if (!isOneTimeUser(s)) return false;
-  const pe = prepaidEnd(s)!;
-  const last = s.prepaid!.periods.find((p) => p.end === pe);
-  return last?.paidWith === "card";
+  return isOneTimeUser(s);
+}
+/** Amount charged and reversed to check a card before it is saved (R-91): A$1 Global, Rp 10,000 Indonesia. */
+export function cardCheckAmount(s: AppState): number {
+  return isIndonesia(s) ? 10000 : 1;
 }
 export function methodLabel(m: PaymentMethodKind, bank?: VaBank, last4?: string): string {
   if (m === "qris") return "QRIS";
@@ -283,6 +284,7 @@ function ctx(s: AppState, extra: Partial<EmailCtx> = {}): EmailCtx {
     proratedAmount: "",
     backupLast4: "",
     defaultLast4: s.card?.last4 ?? "----",
+    checkAmount: "",
   };
   return { ...base, ...extra };
 }
@@ -949,18 +951,15 @@ export function runSweep(s: AppState): AppState {
     const pe = prepaidEnd(next);
     if (pe && isSameOrAfter(next.now, pe)) next = expirePromo(next, pe);
   }
-  // One-time (Indonesia) users: bill before expiry, no grace.
+  // One-time (Indonesia) users: reminders before expiry (no bill, no early payment), then Free at once.
   else if (!activeSubscription(next) && next.prepaid?.source === "one_time") {
     const pe = prepaidEnd(next);
     if (pe) {
       const dl = daysBetween(today, pe);
-      const bill = openBill(next);
-      if (dl > 0 && dl <= BILL_LEAD_DAYS && !bill && !(next.bills ?? []).some((b) => b.kind === "renewal" && b.periodStart === pe)) {
-        next = issueRenewalBill(next);
-      }
-      if (bill && bill.kind === "renewal" && BILL_REMINDER_DAYS.includes(dl)) {
-        next = sendEmail(next, "N-30b", { daysLeft: dl, amount: fmtMoney(bill.amount), prepaidEnd: fmtDate(pe) }, `N-30b:T${dl}:${pe}`);
-      }
+      const last = next.prepaid!.periods.find((p) => p.end === pe)!;
+      const remind = { prepaidEnd: fmtDate(pe), planName: planName(last.tier, last.interval), tierLabel: TIER_LABEL[last.tier], daysLeft: dl };
+      if (dl === BILL_LEAD_DAYS) next = sendEmail(next, "N-30", remind, `N-30:${pe}`);
+      if (BILL_REMINDER_DAYS.includes(dl)) next = sendEmail(next, "N-30b", remind, `N-30b:T${dl}:${pe}`);
       if (isSameOrAfter(next.now, pe)) {
         next = expireOneTimePlan(next, pe);
       }
@@ -1134,16 +1133,13 @@ export interface UpgradeInput {
   workspaceName?: string;
 }
 
-/** Rule C (upgrade now) and rule B (monthly -> annual now). Old plan ends today. */
+/** Upgrade (Personal -> Pro): starts today, the old plan ends today and its unused days are forfeited. */
 export function upgradeNow(s: AppState, input: UpgradeInput): AppState {
   const old = activeSubscription(s)!;
-  const direction = classifyChange(s, input);
   const today = startOfDayUTC(s.now);
   const anchorDay = dayOfMonthUTC(today);
   const remaining = Math.max(0, daysBetween(today, old.currentPeriodEnd));
-  const rolled = direction === "interval_up" && old.status !== "past_due" ? remaining : 0;
-  let end = periodEnd(today, input.interval, anchorDay);
-  if (rolled > 0) end = addDays(end, rolled);
+  const end = periodEnd(today, input.interval, anchorDay);
   const amount = planPrice(input.tier, input.interval, input.seats);
   const card = input.card ?? s.card!;
 
@@ -1187,17 +1183,14 @@ export function upgradeNow(s: AppState, input: UpgradeInput): AppState {
   next = r.state;
   if (input.tier === "business") next = activateWorkspace(next, input.workspaceName);
   next = addConsent(next, {
-    source: direction === "interval_up" ? "interval_change" : "upgrade",
+    source: "upgrade",
     text: input.consentText,
     amount,
     interval: input.interval,
   });
-  const title = direction === "interval_up" ? `Switched to ${planName(input.tier, input.interval)}` : `Upgraded to ${planName(input.tier, input.interval)}`;
-  const detail =
-    direction === "interval_up"
-      ? `Charged ${fmtMoney(amount)}. ${rolled} remaining days rolled over; new end date ${fmtDate(end)}. Billing date is now the ${anchorDay}${ordinal(anchorDay)}.`
-      : `Charged ${fmtMoney(amount)}. Previous ${planName(old.tier, old.interval)} ended today; ${remaining} remaining days forfeited (acknowledged). Billing date is now the ${anchorDay}${ordinal(anchorDay)}.`;
-  next = addHistory(next, direction === "interval_up" ? "interval_changed" : "upgraded", title, detail);
+  const title = `Upgraded to ${planName(input.tier, input.interval)}`;
+  const detail = `Charged ${fmtMoney(amount)}. Previous ${planName(old.tier, old.interval)} ended today; ${remaining} remaining days forfeited (acknowledged). Billing date is now the ${anchorDay}${ordinal(anchorDay)}.`;
+  next = addHistory(next, "upgraded", title, detail);
   if (old.scheduledChange || old.cancelAtPeriodEnd) {
     next = addHistory(next, "change_undone", "Pending change removed by the upgrade");
   }
@@ -1209,8 +1202,8 @@ export function upgradeNow(s: AppState, input: UpgradeInput): AppState {
     newAmount: fmtMoney(amount),
     newEnd: fmtDate(end),
     oldPlanName: planName(old.tier, old.interval),
-    forfeitDays: direction === "interval_up" ? 0 : remaining,
-    rolledDays: rolled,
+    forfeitDays: remaining,
+    rolledDays: 0,
   });
   return toast(next, `You are now on ${planName(input.tier, input.interval)}.`);
 }
@@ -1221,7 +1214,7 @@ function ordinal(n: number): string {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-/** Rule D (downgrade) and scheduled upgrade: change at period end, nothing charged now. */
+/** Monthly <-> yearly switch: applies at period end, nothing charged now (no stacking, no end-date extension). */
 export function scheduleChange(
   s: AppState,
   input: { kind: ChangeKind; tier: PaidTier; interval: Interval; seats: number },
@@ -1254,14 +1247,9 @@ export function scheduleChange(
   next = addHistory(
     next,
     "change_scheduled",
-    `${input.kind === "scheduled_upgrade" ? "Upgrade" : "Downgrade"} to ${planName(input.tier, input.interval)} scheduled for ${fmtDate(change.effectiveAt)}`,
+    `Switch to ${planName(input.tier, input.interval)} scheduled for ${fmtDate(change.effectiveAt)}`,
     `Nothing charged today. ${newAmount} will be charged on ${fmtDate(change.effectiveAt)}. You can undo until then.`
   );
-  if (input.kind !== "scheduled_upgrade" && sub.tier === "business" && input.tier === "personal") {
-    for (const m of s.workspace.members.filter((m) => m.role !== "owner")) {
-      next = sendEmail(next, "N-16", { effectiveDate: fmtDate(change.effectiveAt) }, `N-16:heads-up:${m.id}:${change.effectiveAt}`, m.email);
-    }
-  }
   next = sendEmail(next, "N-11", {
     oldPlanName: planName(sub.tier, sub.interval),
     newPlanName: planName(input.tier, input.interval),
@@ -1269,7 +1257,7 @@ export function scheduleChange(
     intervalWord: intervalWord(input.interval),
     effectiveDate: fmtDate(change.effectiveAt),
   });
-  return toast(next, `Change scheduled for ${fmtDate(change.effectiveAt)}. You can undo it any time before then.`, "info");
+  return toast(next, `Billing switch scheduled for ${fmtDate(change.effectiveAt)}. You can undo it any time before then.`, "info");
 }
 
 export function undoScheduledChange(s: AppState): AppState {
@@ -1353,8 +1341,20 @@ function retryIfPastDue(s: AppState): AppState {
   return s;
 }
 
+/** A new card is checked with a small charge that is reversed at once (R-91). */
+function isNewCard(s: AppState, card: Card): boolean {
+  return !allCards(s).some((c) => c.last4 === card.last4 && c.expMonth === card.expMonth && c.expYear === card.expYear);
+}
+function recordCardCheck(s: AppState, card: Card): AppState {
+  const amt = fmtMoney(cardCheckAmount(s));
+  return addHistory(s, "card_checked", `Card ending ${card.last4} checked`, `${amt} charged to check the card and reversed right away.`);
+}
+
 /** Add a card. As default: the previous default becomes the first backup. As backup: appended to the fallback order. */
-export function addCard(s: AppState, card: Card, makeDefault: boolean): AppState {
+export function addCard(s0: AppState, card: Card, makeDefault: boolean): AppState {
+  const fresh = isNewCard(s0, card);
+  const s = fresh ? recordCardCheck(s0, card) : s0;
+  const checkAmount = fresh ? fmtMoney(cardCheckAmount(s0)) : "";
   const hadDefault = !!s.card;
   let next = addCardState(s, card, makeDefault);
   const isDefault = !hadDefault || makeDefault;
@@ -1365,8 +1365,8 @@ export function addCard(s: AppState, card: Card, makeDefault: boolean): AppState
     `${brandLabel(card.brand)} ending ${card.last4}, expires ${String(card.expMonth).padStart(2, "0")}/${card.expYear}.${isDefault && hadDefault ? ` Card ending ${s.card!.last4} kept as a backup.` : ""}`
   );
   const sub = activeSubscription(next);
-  if (sub && isDefault) next = sendEmail(next, "N-21", { last4: card.last4 });
-  if (sub && !isDefault) next = sendEmail(next, "N-24", { backupLast4: card.last4 });
+  if (sub && isDefault) next = sendEmail(next, "N-21", { last4: card.last4, checkAmount });
+  if (sub && !isDefault) next = sendEmail(next, "N-24", { backupLast4: card.last4, checkAmount });
   if (sub && sub.status === "past_due") return retryIfPastDue(next);
   return toast(next, isDefault ? "Default payment method updated." : `Backup card ending ${card.last4} added.`);
 }
@@ -1520,7 +1520,8 @@ export function confirmAuthentication(s: AppState): AppState {
 }
 
 /** Migration opt-in: prepaid user saves a card and creates a subscription that starts charging when prepaid time ends. */
-export function optInAutoRenew(s: AppState, card: Card, consentText: string, interval: Interval, targetTier?: PaidTier, seats = 1): AppState {
+export function optInAutoRenew(s0: AppState, card: Card, consentText: string, interval: Interval, targetTier?: PaidTier, seats = 1): AppState {
+  const s = isNewCard(s0, card) ? recordCardCheck(s0, card) : s0;
   const pe = prepaidEnd(s)!;
   const tier = targetTier ?? s.prepaid!.tier;
   const last = s.prepaid!.periods.find((p) => p.end === pe)!;
@@ -1607,13 +1608,13 @@ function newPaymentRequest(s: AppState, method: PaymentMethodKind, bank?: VaBank
   };
 }
 
-/** Start a one-time purchase (new plan or "buy next period"): creates a bill with a live Payment ID. */
+/** Start a one-time purchase (a new plan, or an upgrade that starts today): creates a bill with a live Payment ID. */
 export function startOneTimePurchase(
   s: AppState,
   input: { tier: PaidTier; interval: Interval; seats: number; method: PaymentMethodKind; bank?: VaBank; card?: Card; saveCard?: boolean; workspaceName?: string }
 ): AppState {
-  const pe = isOneTimeUser(s) ? prepaidEnd(s)! : null;
-  const start = pe && isSameOrAfter(pe, startOfDayUTC(s.now)) ? pe : startOfDayUTC(s.now);
+  // No early payment and no stacking: a new period always starts on the day of payment.
+  const start = startOfDayUTC(s.now);
   const anchorDay = dayOfMonthUTC(start);
   const end = periodEnd(start, input.interval, anchorDay);
   const amount = planPrice(input.tier, input.interval, input.seats);
@@ -1640,30 +1641,14 @@ export function startOneTimePurchase(
   return next;
 }
 
-/** Renewal bill for a one-time plan, issued BILL_LEAD_DAYS before expiry (no Payment ID until the user clicks Pay). */
-export function issueRenewalBill(s: AppState): AppState {
-  const pe = prepaidEnd(s)!;
-  const last = s.prepaid!.periods.find((p) => p.end === pe)!;
-  const seats = last.seats ?? 1;
-  const amount = planPrice(last.tier, last.interval, seats);
-  const bill: Bill = {
-    id: uid("bill"),
-    kind: "renewal",
-    tier: last.tier,
-    interval: last.interval,
-    seats,
-    amount,
-    periodStart: pe,
-    periodEnd: periodEnd(pe, last.interval, dayOfMonthUTC(pe)),
-    issuedAt: s.now,
-    dueAt: pe,
-    status: "awaiting",
-    payment: null,
-  };
-  let next: AppState = { ...s, bills: [bill, ...(s.bills ?? [])] };
-  next = addHistory(next, "bill_issued", `Bill issued: ${planName(last.tier, last.interval)} for ${periodLabel(pe, bill.periodEnd)}`, `${fmtMoney(amount)}, pay before ${fmtDate(pe)} to continue without interruption. No automatic charge.`);
-  next = sendEmail(next, "N-30", { amount: fmtMoney(amount), prepaidEnd: fmtDate(pe), planName: planName(last.tier, last.interval), newEnd: fmtDate(bill.periodEnd), daysLeft: BILL_LEAD_DAYS }, `N-30:${pe}`);
-  return next;
+/** Card payment for a manual (one-time) period: the card is charged on Doku's page (or the saved card is charged), so the period starts at once. */
+export function buyOneTimeByCard(
+  s: AppState,
+  input: { tier: PaidTier; interval: Interval; seats: number; card: Card; saveCard?: boolean; workspaceName?: string }
+): AppState {
+  const started = startOneTimePurchase(s, { ...input, method: "card" });
+  const bill = started.bills![0];
+  return confirmPayment(started, bill.id);
 }
 
 /** User clicks Pay on a renewal bill and picks a method: generates the Payment ID. */
@@ -1716,7 +1701,9 @@ export function confirmPayment(s0: AppState, billId: string): AppState {
   });
   let next = r.state;
   const period = { start: bill.periodStart, end: bill.periodEnd, tier: bill.tier, interval: bill.interval, purchasedAt: s.now, seats: bill.seats, paidWith: bill.payment.method, paidWithLabel: label };
-  const periods = s.prepaid?.source === "one_time" ? [...s.prepaid.periods, period] : [period];
+  // Upgrade while a manual plan is running: the old plan ends today and its unused days are forfeited.
+  const today = startOfDayUTC(s.now);
+  const periods = s.prepaid?.source === "one_time" ? [...s.prepaid.periods.map((p) => (isSameOrAfter(p.end, today) ? { ...p, end: today } : p)), period] : [period];
   next = {
     ...next,
     prepaid: { tier: bill.tier, periods, source: "one_time" },
@@ -1731,20 +1718,19 @@ export function confirmPayment(s0: AppState, billId: string): AppState {
 function expireOneTimePlan(s: AppState, pe: string): AppState {
   let next: AppState = { ...s, bills: (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "expired" as const, payment: null } : b)) };
   const tier = s.prepaid!.tier;
-  next = addHistory(next, "bill_expired", `${TIER_LABEL[tier]} plan expired`, "The bill was not paid by the expiry date. Account moved to Free (no grace period for one-time plans). Documents kept.");
+  next = addHistory(next, "bill_expired", `${TIER_LABEL[tier]} plan ended`, "Account moved to Free with 5 envelopes a month (no grace period for manual payment). Documents kept. A new plan can be bought any time and starts on the day of payment.");
   next = sendEmail(next, "N-31", { prepaidEnd: fmtDate(pe), tierLabel: TIER_LABEL[tier] }, `N-31:${pe}`);
   if (tier === "business") next = expireWorkspace(next, fmtDate(pe));
   return { ...next, prepaid: null };
 }
 
-/** One-time user turns on auto-renewal: subscription anchored at the current expiry, first charge on that date, open bill voided. */
+/** Manual user turns on auto-renewal (any time): subscription anchored at the current end date, first charge on that date. */
 export function convertToAutoRenew(s: AppState, card: Card, consentText: string): AppState {
   const pe = prepaidEnd(s)!;
   const last = s.prepaid!.periods.find((p) => p.end === pe)!;
-  const bills = (s.bills ?? []).map((b) => (b.status === "awaiting" || b.status === "pending_payment" ? { ...b, status: "void" as const, payment: null } : b));
-  let next = optInAutoRenew({ ...s, bills }, card, consentText, last.interval, last.tier, last.seats ?? 1);
-  next = sendEmail(next, "N-34", { planName: planName(last.tier, last.interval), nextDate: fmtDate(pe), amount: fmtMoney(planPrice(last.tier, last.interval, last.seats ?? 1)), last4: card.last4 });
-  return toast(next, `Auto-renewal is on. We charge card ending ${card.last4} on ${fmtDate(pe)}; no more manual bills.`);
+  let next = optInAutoRenew(s, card, consentText, last.interval, last.tier, last.seats ?? 1);
+  next = sendEmail(next, "N-34", { planName: planName(last.tier, last.interval), nextDate: fmtDate(pe), amount: fmtMoney(planPrice(last.tier, last.interval, last.seats ?? 1)), last4: card.last4, checkAmount: fmtMoney(cardCheckAmount(s)) });
+  return toast(next, `Auto-renewal is on. We charge card ending ${card.last4} on ${fmtDate(pe)}; no more manual payments.`);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1784,7 +1770,7 @@ export function downgradeLosses(s: AppState): string[] {
         .join(", ")}${others.length > 3 ? ` and ${others.length - 3} more` : ""}`
     );
   }
-  out.push("Your Individual workspace loses the owner perk: envelopes limited to 50 per month instead of unlimited");
+  out.push("Your Individual workspace loses Personal, included with Pro: it goes back to Free with 5 envelopes a month");
   if (s.workspace.automations > 0) out.push(`${s.workspace.automations} workflow automation${s.workspace.automations === 1 ? "" : "s"} pause`);
   if (s.workspace.retentionPolicies > 0) out.push(`${s.workspace.retentionPolicies} retention polic${s.workspace.retentionPolicies === 1 ? "y" : "ies"} pause`);
   const off: string[] = [];
@@ -2031,8 +2017,9 @@ function endPromoForPurchase(s: AppState, newTier: PaidTier): AppState {
 export function subscribeAfterPromo(s: AppState, card: Card, consentText: string, tier: PaidTier, interval: Interval, seats: number): AppState {
   if (!isPromoUser(s)) return s;
   const info = promoInfo(s)!;
-  const sameTier = tier === info.tier;
-  let next = optInAutoRenew(s, card, consentText, sameTier ? interval : "monthly", info.tier, sameTier ? seats : 1);
+  // Only the same plan can be set to start later; another plan starts today (no scheduled plan changes).
+  if (tier !== info.tier) return s;
+  let next = optInAutoRenew(s, card, consentText, interval, info.tier, seats);
   const amount = planPrice(tier, interval, seats);
   const sub = next.subscription!;
   next = {
@@ -2040,12 +2027,6 @@ export function subscribeAfterPromo(s: AppState, card: Card, consentText: string
     subscription: {
       ...sub,
       promo: { code: info.code, campaign: info.campaign, until: info.until, tier: info.tier },
-      ...(sameTier
-        ? {}
-        : {
-            status: "change_scheduled" as const,
-            scheduledChange: { kind: TIER_RANK[tier] > TIER_RANK[info.tier] ? ("scheduled_upgrade" as const) : ("downgrade" as const), tier, interval, seats, effectiveAt: info.until, createdAt: s.now },
-          }),
     },
     consents: next.consents.map((c, i) => (i === 0 ? { ...c, amount, interval } : c)),
     history: next.history.map((h, i) => (i === 0 ? { ...h, title: `${planName(tier, interval)} starts on ${fmtDate(info.until)}, when your free period ends`, detail: `Nothing charged today. First charge of ${fmtMoney(amount)} on ${fmtDate(info.until)} to card ending ${card.last4}.` } : h)),

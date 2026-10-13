@@ -10,7 +10,7 @@ import { CardBrandBadge } from "@/components/payments";
 import { SettingsHeader } from "@/components/SettingsHeader";
 import { Spec, StatusPill } from "@/components/ui";
 import { BILL_LEAD_DAYS, TEMPLATE_LIMIT, TIER_LABEL as TIER_LABEL_UI, regionMeta } from "@/lib/catalog";
-import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentInterval, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, individualPlan, isIndonesia, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView, type WorkspaceView } from "@/lib/engine";
+import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, currentPlanName, currentSeats, currentTier, daysLeftInPeriod, graceDaysLeft, individualPlan, isIndonesia, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, methodLabel, openBill, planName, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView, type WorkspaceView } from "@/lib/engine";
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Bill, Invoice } from "@/lib/types";
@@ -45,7 +45,7 @@ function Billing() {
     if (a === "card") flows.open({ type: "replaceCard" });
     if (a === "pay-bill") {
       const b = openBill(s);
-      if (b) flows.open(b.status === "pending_payment" ? { type: "paymentDetail", billId: b.id } : { type: "payBill", billId: b.id });
+      if (b && b.status === "pending_payment") flows.open({ type: "paymentDetail", billId: b.id });
     }
     if (a === "convert" && isOneTimeUser(s)) flows.open({ type: "convert" });
     router.replace("/settings/billing");
@@ -361,15 +361,15 @@ function SubscriptionCard() {
       );
     } else if (sub.status === "change_scheduled" && sub.scheduledChange) {
       const c = sub.scheduledChange;
-      status = <StatusPill tone="info">Changing to {planName(c.tier, c.interval)} on {fmtDate(c.effectiveAt)}</StatusPill>;
+      status = <StatusPill tone="info">Switching to {c.interval === "annual" ? "yearly" : "monthly"} billing on {fmtDate(c.effectiveAt)}</StatusPill>;
       footer = (
         <span className="text-ink-2">
-          Current plan until {fmtDate(c.effectiveAt)}. Then {fmtMoney(planPrice(c.tier, c.interval, c.seats))} per {c.interval === "monthly" ? "month" : "year"} on {cardText}.
+          {planName(sub.tier, sub.interval)} until {fmtDate(c.effectiveAt)}. Then {planName(c.tier, c.interval)}, {fmtMoney(planPrice(c.tier, c.interval, c.seats))} per {c.interval === "monthly" ? "month" : "year"} on {cardText}.
         </span>
       );
       actions.push(
         <button key="undo" className="btn-secondary" onClick={() => api.undoScheduledChange()}>
-          Keep my current plan
+          Keep {sub.interval === "annual" ? "yearly" : "monthly"} billing
         </button>
       );
     } else {
@@ -424,28 +424,22 @@ function SubscriptionCard() {
     const pe = prepaidEnd(s)!;
     const left = daysLeftInPeriod(s) ?? 0;
     const last = s.prepaid!.periods.find((p) => p.end === pe);
-    status = <StatusPill tone={left <= 3 ? "warn" : "neutral"}>One-time · expires {fmtDate(pe)}</StatusPill>;
+    status = <StatusPill tone={left <= 3 ? "warn" : "neutral"}>Manual payment · ends {fmtDate(pe)}</StatusPill>;
     footer = (
       <span className="text-ink-2">
-        Paid until <strong className="text-ink">{fmtDate(pe)}</strong> ({last?.paidWithLabel ?? "one-time payment"}). No automatic renewal: {bill ? `your bill for the next period is ${bill.status === "pending_payment" ? "waiting for payment" : "ready"}.` : `a bill is sent ${BILL_LEAD_DAYS} days before expiry.`} <Spec id="R-63" />
+        Paid until <strong className="text-ink">{fmtDate(pe)}</strong> ({last?.paidWithLabel ?? "manual payment"}). No automatic renewal and nothing to pay before then: we remind you {BILL_LEAD_DAYS}, 3 and 1 day before. After it ends your account moves to Free and you can buy again any time. <Spec id="R-63" />
       </span>
     );
-    if (bill) {
+    if (bill && bill.status === "pending_payment") {
       actions.push(
-        <button key="pay" className="btn-primary" onClick={() => flows.open(bill.status === "pending_payment" ? { type: "paymentDetail", billId: bill.id } : { type: "payBill", billId: bill.id })}>
-          {bill.status === "pending_payment" ? "Continue payment" : `Pay ${fmtMoney(bill.amount)} bill`}
-        </button>
-      );
-    } else {
-      actions.push(
-        <button key="buy" className="btn-primary" onClick={() => flows.open({ type: "plan", tier: s.prepaid!.tier, interval: currentInterval(s) ?? "monthly", seats: currentSeats(s) })}>
-          Buy next period
+        <button key="pay" className="btn-primary" onClick={() => flows.open({ type: "paymentDetail", billId: bill.id })}>
+          Continue payment
         </button>
       );
     }
     if (convertEligible(s)) {
       actions.push(
-        <button key="convert" className="btn-secondary" onClick={() => flows.open({ type: "convert" })}>
+        <button key="convert" className={bill ? "btn-secondary" : "btn-primary"} onClick={() => flows.open({ type: "convert" })}>
           <IconRefresh size={16} /> Turn on auto-renewal
         </button>
       );
@@ -538,7 +532,7 @@ function PaymentMethodCard() {
           <div className="flex-1">
             <p className="text-[15px] font-medium text-ink">Automatic renewal is off</p>
             <p className="text-sm text-muted">
-              You pay each period yourself. Switch to automatic renewal with a card and we charge it on {fmtDate(prepaidEnd(s)!)} and every period after, with a 14-day grace period if a payment ever fails. <Spec id="R-66" />
+              You pay each period yourself, after the current one ends. Switch to automatic renewal with a card any time: we charge it on {fmtDate(prepaidEnd(s)!)} and every period after, with a 14-day grace period if a payment ever fails. <Spec id="R-66" />
             </p>
           </div>
           <button className="btn-secondary" onClick={() => flows.open({ type: "convert" })}>
@@ -557,7 +551,7 @@ function PaymentMethodCard() {
               <p className="text-sm text-muted">
                 Expires {String(s.card.expMonth).padStart(2, "0")}/{s.card.expYear}
                 {expiring && <span className="ml-2 font-medium text-warn">Expires before your next renewal</span>}
-                {oneTime ? " · saved for paying bills faster" : backups.length > 0 ? ` · ${backups.length} backup card${backups.length > 1 ? "s" : ""} (ending ${backups.map((b) => b.last4).join(", ")})` : " · no backup card"}
+                {oneTime ? " · saved for paying faster" : backups.length > 0 ? ` · ${backups.length} backup card${backups.length > 1 ? "s" : ""} (ending ${backups.map((b) => b.last4).join(", ")})` : " · no backup card"}
               </p>
             </div>
           </>
@@ -597,10 +591,10 @@ function Bills() {
       <h2 className="mb-3 text-[17px] font-medium text-ink">
         Bills <Spec id="R-64" />
       </h2>
-      {open ? <BillRow bill={open} onPay={() => flows.open(open.status === "pending_payment" ? { type: "paymentDetail", billId: open.id } : { type: "payBill", billId: open.id })} onCancel={open.payment ? () => api.cancelPayment(open.id) : undefined} highlight /> : (
+      {open ? <BillRow bill={open} onPay={() => flows.open({ type: "paymentDetail", billId: open.id })} onCancel={open.payment ? () => api.cancelPayment(open.id) : undefined} highlight /> : (
         <div className="card px-5 py-4 text-sm text-ink-2">
           No bill waiting for payment.{" "}
-          {isOneTimeUser(s) ? `Your next bill is issued ${BILL_LEAD_DAYS} days before ${fmtDate(prepaidEnd(s)!)}.` : activeSubscription(s) ? "Your plan renews automatically, so there is nothing to pay by hand." : "Buy a plan to get started."}
+          {isOneTimeUser(s) ? `Nothing to pay before ${fmtDate(prepaidEnd(s)!)}. Buy your next period after that date, or turn on auto-renewal to continue without a gap.` : activeSubscription(s) ? "Your plan renews automatically, so there is nothing to pay by hand." : "Buy a plan to get started."}
         </div>
       )}
       {bills.filter((b) => b !== open).length > 0 && (

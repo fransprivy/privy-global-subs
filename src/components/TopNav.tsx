@@ -23,12 +23,12 @@ export function TopNav() {
   const limit = ws.envelopeLimit;
   const left = limit === null ? null : Math.max(0, limit - ws.usage.envelopesSent);
   // CTA per workspace (R-77): Individual Free/Personal → Upgrade; owner perk → Included with Pro; owned Pro → Manage / Reactivate; member → none.
-  // "Upgrade plan" only when there is something to upgrade: Free, or a Personal plan with no sends left (UX-27).
+  // "Upgrade plan" only on Free: Personal already has unlimited envelopes (UX-27).
   // Owned Pro: Manage / Reactivate. Members and the owner-perk Individual workspace get no CTA.
   const plan = individualPlan(s);
   const cta =
     ws.kind === "individual"
-      ? plan === "free" || (plan === "personal" && left === 0)
+      ? plan === "free"
         ? { label: "Upgrade plan", href: "/plans" }
         : null
       : ws.kind === "business" && ws.role === "owner"

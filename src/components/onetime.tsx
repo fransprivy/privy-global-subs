@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PAYMENT_ID_VALID_HOURS, REGIONS, TIER_LABEL, VA_BANKS, regionMeta } from "@/lib/catalog";
-import { intervalWord, isOneTimeUser, methodLabel, paymentMethodsFor, periodEnd, planName, planPrice, prepaidEnd, regionOf, workspaceStatus } from "@/lib/engine";
-import { dayOfMonthUTC, fmtDate, fmtDateTime, fmtMoney, isSameOrAfter, startOfDayUTC } from "@/lib/format";
+import { cardCheckAmount, intervalWord, isOneTimeUser, methodLabel, paymentMethodsFor, periodEnd, planName, planPrice, prepaidEnd, regionOf, workspaceStatus } from "@/lib/engine";
+import { dayOfMonthUTC, fmtDate, fmtDateTime, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
-import type { Bill, Card, Interval, PaidTier, PaymentMethodKind, PurchaseType, VaBank } from "@/lib/types";
+import type { Card, Interval, PaidTier, PaymentMethodKind, PurchaseType, VaBank } from "@/lib/types";
 import { IconBank, IconCard, IconCheckCircle, IconChevronDown, IconDownload, IconInfo, IconMinus, IconPlus, IconQr, IconReceipt, IconRefresh, IconShield } from "./Icons";
 import { WorkspaceNameField } from "./CheckoutDrawer";
-import { CardForm, cardFormValid, cardFromForm, Radio, SavedCardRow, type CardFormValue } from "./payments";
+import { HostedCardNote, HostedCardPage, Radio, SavedCardRow } from "./payments";
 import { Checkbox, Drawer, Modal, Spec } from "./ui";
 
 /* ------------------------------------------------------------------ */
@@ -38,7 +38,7 @@ export function PurchaseTypeModal({
     <Modal
       open
       onClose={close}
-      title={oneTime && pe ? `Change your plan from ${fmtDate(pe)}` : "How do you want to pay?"}
+      title={oneTime ? `How do you want to pay for ${TIER_LABEL[tier]}?` : "How do you want to pay?"}
       spec="M-10"
       width="max-w-xl"
       footer={
@@ -56,15 +56,15 @@ export function PurchaseTypeModal({
         <p className="text-sm">
           {planName(tier, interval)}
           {tier === "business" ? ` × ${seats} seat${seats > 1 ? "s" : ""}` : ""}: <strong className="text-ink">{fmtMoney(amount)}</strong> per {intervalWord(interval)} ({region.taxNote}).
-          {oneTime && pe && <span> Your current plan runs until {fmtDate(pe)}; the new period starts after it.</span>}
+          {oneTime && pe && <span> {TIER_LABEL[tier]} starts today; your current plan, paid until {fmtDate(pe)}, ends today.</span>}
         </p>
         <TypeCard
           on={choice === "recurring"}
           onClick={() => setChoice("recurring")}
-          title={oneTime ? "Turn on auto-renewal" : "Auto-renewal"}
+          title="Auto-renewal"
           badge="Recommended"
           lines={[
-            "Pay with a credit or debit card. We charge it automatically every " + intervalWord(interval) + ".",
+            "Pay with a credit or debit card on Doku's secure page. We charge it automatically every " + intervalWord(interval) + ".",
             "If a charge fails you keep full access for 14 days while we retry.",
             "Cancel any time online; access continues until the end of the paid period.",
           ]}
@@ -72,15 +72,15 @@ export function PurchaseTypeModal({
         <TypeCard
           on={choice === "one_time"}
           onClick={() => setChoice("one_time")}
-          title={oneTime ? "Pay once for the next period" : "One-time purchase"}
+          title="Manual payment"
           lines={[
             "Pay for this period only with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card.",
-            "We send you a bill 7 days before the plan expires. Pay it to continue, or let it expire.",
-            "No automatic charge and no grace period: the plan ends on its expiry date if the bill is unpaid.",
+            "We remind you 7, 3 and 1 day before it ends. Buy the next period after it ends; it starts on the day you pay.",
+            "No automatic charge and no grace period: on the end date your account moves to Free.",
           ]}
         />
         <p className="text-xs text-muted">
-          Both options are the same Privy subscription; only the way you pay differs. You can switch from one-time to auto-renewal later from Billing. <Spec id="R-60" />
+          Both options are the same Privy plan; only the way you pay differs. You can turn on auto-renewal later from Billing at any time. <Spec id="R-60" />
         </p>
       </div>
     </Modal>
@@ -116,54 +116,69 @@ export function OneTimeCheckoutDrawer({
   tier,
   interval: initialInterval,
   seats: initialSeats,
-  bill,
   close,
   onPaymentCreated,
 }: {
   tier: PaidTier;
   interval: Interval;
   seats: number;
-  /** When paying an existing renewal bill, plan/interval/seats are fixed. */
-  bill?: Bill;
   close: () => void;
+  /** A Payment ID was generated (QRIS / virtual account): show the payment detail next. */
   onPaymentCreated: () => void;
 }) {
   const { s, api } = useAppState();
-  const [interval, setInterval] = useState<Interval>(bill?.interval ?? initialInterval);
-  const [seats, setSeats] = useState(bill?.seats ?? Math.max(1, initialSeats));
+  const [interval, setInterval] = useState<Interval>(initialInterval);
+  const [seats, setSeats] = useState(Math.max(1, initialSeats));
   const methods = paymentMethodsFor(s, "one_time");
   const [method, setMethod] = useState<PaymentMethodKind>("qris");
   const [bank, setBank] = useState<VaBank>("BCA");
   const [useSaved, setUseSaved] = useState(!!s.card);
-  const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
   const [saveCard, setSaveCard] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [hosted, setHosted] = useState(false);
   const region = regionMeta(regionOf(s));
-  const [newWorkspace] = useState(() => !bill && workspaceStatus(s) === "none");
+  const [newWorkspace] = useState(() => workspaceStatus(s) === "none");
   const [workspaceName, setWorkspaceName] = useState(`${s.user.name}'s team`);
 
-  const amount = bill ? bill.amount : planPrice(tier, interval, seats);
-  const pe = prepaidEnd(s);
-  const start = bill ? bill.periodStart : isOneTimeUser(s) && pe && isSameOrAfter(pe, startOfDayUTC(s.now)) ? pe : startOfDayUTC(s.now);
-  const end = bill ? bill.periodEnd : periodEnd(start, interval, dayOfMonthUTC(start));
-  const card: Card | null = method !== "card" ? null : useSaved && s.card ? s.card : cardFormValid(form) ? cardFromForm(form, s.now) : null;
-  const canPay = !busy && (method !== "card" || !!card);
+  const amount = planPrice(tier, interval, seats);
+  // No early payment and no stacking: a manual period always starts today.
+  const start = startOfDayUTC(s.now);
+  const end = periodEnd(start, interval, dayOfMonthUTC(start));
+  const workspace = tier === "business" && newWorkspace ? workspaceName : undefined;
 
-  function pay() {
+  function payByCard(card: Card, save: boolean) {
     setBusy(true);
     setTimeout(() => {
-      const newCard = method === "card" && !useSaved && card ? card : undefined;
-      if (bill) api.payBill(bill.id, method, method === "va" ? bank : undefined, method === "card" ? card ?? undefined : undefined, !!newCard && saveCard);
-      else api.startOneTimePurchase({ tier, interval, seats, method, bank: method === "va" ? bank : undefined, card: method === "card" ? card ?? undefined : undefined, saveCard: !!newCard && saveCard, workspaceName: tier === "business" && newWorkspace ? workspaceName : undefined });
+      api.buyOneTimeByCard({ tier, interval, seats, card: { ...card, behavior: "success" }, saveCard: save, workspaceName: workspace });
+      close();
+    }, 400);
+  }
+
+  function pay() {
+    if (method === "card") {
+      if (useSaved && s.card) payByCard(s.card, false);
+      else setHosted(true);
+      return;
+    }
+    setBusy(true);
+    setTimeout(() => {
+      api.startOneTimePurchase({ tier, interval, seats, method, bank: method === "va" ? bank : undefined, workspaceName: workspace });
       onPaymentCreated();
     }, 500);
   }
 
+  const payLabel = busy
+    ? method === "card" ? "Paying…" : "Generating Payment ID…"
+    : method === "card"
+      ? useSaved && s.card ? `Pay ${fmtMoney(amount)} with card ending ${s.card.last4}` : `Continue to Doku to pay ${fmtMoney(amount)}`
+      : `Continue to ${method === "qris" ? "QRIS" : `${bank} virtual account`}`;
+
   return (
+    <>
     <Drawer
       open
       onClose={close}
-      title={bill ? "Pay your bill" : "Checkout"}
+      title="Checkout"
       spec="M-11"
       footer={
         <div className="space-y-3">
@@ -183,13 +198,16 @@ export function OneTimeCheckoutDrawer({
                 {fmtDate(start)} to {fmtDate(end)}
               </strong>
             </div>
-            <div className="mt-1 text-[11px] text-muted">No automatic renewal. We will send a bill 7 days before {fmtDate(end)}.</div>
+            <div className="mt-1 text-[11px] text-muted">No automatic renewal. We remind you 7 days before {fmtDate(end)}; buy the next period after it ends.</div>
           </div>
-          <button className="btn-primary h-12 w-full text-base" disabled={!canPay} onClick={pay}>
-            <IconShield size={18} /> {busy ? "Generating Payment ID…" : method === "card" ? `Pay ${fmtMoney(amount)}` : `Continue to ${method === "qris" ? "QRIS" : `${bank} virtual account`}`}
+          <button className="btn-primary h-12 w-full text-base" disabled={busy} onClick={pay}>
+            <IconShield size={18} /> {payLabel}
           </button>
           <p className="text-center text-[11px] text-muted">
-            A Payment ID valid for {PAYMENT_ID_VALID_HOURS} hours is created; nothing is charged until you complete the payment. <Spec id="R-62" />
+            {method === "card"
+              ? "Card payments are processed by Doku; Privy never sees the card number."
+              : `A Payment ID valid for ${PAYMENT_ID_VALID_HOURS} hours is created; nothing is charged until you complete the payment.`}{" "}
+            <Spec id="R-62" />
           </p>
         </div>
       }
@@ -197,57 +215,41 @@ export function OneTimeCheckoutDrawer({
       <div className="space-y-5">
         <section>
           <h3 className="mb-2 text-[17px] font-medium text-ink">Selected plan</h3>
-          {bill ? (
-            <div className="rounded-2xl border border-maroon px-5 py-4">
-              <p className="text-[17px] font-medium text-ink">
-                {planName(bill.tier, bill.interval)}
-                {bill.tier === "business" ? ` × ${bill.seats} seats` : ""}
-              </p>
-              <p className="mt-1 text-[22px] font-semibold text-ink">
-                {fmtMoney(bill.amount)} <span className="text-sm font-normal text-muted">for {fmtDate(bill.periodStart)} to {fmtDate(bill.periodEnd)}</span>
-              </p>
-              <p className="mt-1 text-sm text-ink-2">Bill issued {fmtDate(bill.issuedAt)}. Pay before {fmtDate(bill.dueAt)}; the plan expires on that date if unpaid.</p>
-              <Link href="/settings/billing/change-plan" onClick={close} className="mt-2 inline-block text-sm font-medium text-maroon underline-offset-2 hover:underline">
-                Change plan for next period
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(["monthly", "annual"] as Interval[]).map((iv) => {
-                const price = planPrice(tier, iv, seats);
-                const selected = iv === interval;
-                return (
-                  <button key={iv} type="button" onClick={() => setInterval(iv)} className={`w-full rounded-2xl border px-5 py-4 text-left ${selected ? "border-maroon" : "border-line-2"}`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[17px] font-medium text-ink">
-                        {TIER_LABEL[tier]} {iv === "monthly" ? "Monthly" : "Yearly"} · one-time
-                      </span>
-                      <Radio on={selected} />
-                    </div>
-                    <div className="mt-1 text-[22px] font-semibold text-ink">
-                      {fmtMoney(price)} <span className="text-sm font-normal text-muted">/{iv === "monthly" ? "month" : "year"}{tier === "business" ? ` · ${seats} seat${seats > 1 ? "s" : ""}` : ""} · {region.taxNote}</span>
-                    </div>
-                    <div className="mt-1 text-sm text-ink-2">Paid once. Does not renew automatically.</div>
-                  </button>
-                );
-              })}
-              {tier === "business" && (
-                <div className="flex items-center gap-3">
-                  <button type="button" className="btn-secondary !px-3" onClick={() => setSeats((v) => Math.max(1, v - 1))} aria-label="Fewer seats">
-                    <IconMinus size={16} />
-                  </button>
-                  <span className="w-8 text-center text-[17px] font-medium">{seats}</span>
-                  <button type="button" className="btn-secondary !px-3" onClick={() => setSeats((v) => Math.min(50, v + 1))} aria-label="More seats">
-                    <IconPlus size={16} />
-                  </button>
-                  <span className="text-sm text-ink-2">
-                    {fmtMoney(planPrice(tier, interval, 1))} per seat per {intervalWord(interval)}. Seats are fixed for a one-time period; change them when you buy the next one.
-                  </span>
-                </div>
-              )}
-              {tier === "business" && newWorkspace && <WorkspaceNameField value={workspaceName} onChange={setWorkspaceName} />}
-            </div>
-          )}
+          <div className="space-y-3">
+            {(["monthly", "annual"] as Interval[]).map((iv) => {
+              const price = planPrice(tier, iv, seats);
+              const selected = iv === interval;
+              return (
+                <button key={iv} type="button" onClick={() => setInterval(iv)} className={`w-full rounded-2xl border px-5 py-4 text-left ${selected ? "border-maroon" : "border-line-2"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[17px] font-medium text-ink">
+                      {TIER_LABEL[tier]} {iv === "monthly" ? "Monthly" : "Yearly"} · manual payment
+                    </span>
+                    <Radio on={selected} />
+                  </div>
+                  <div className="mt-1 text-[22px] font-semibold text-ink">
+                    {fmtMoney(price)} <span className="text-sm font-normal text-muted">/{iv === "monthly" ? "month" : "year"}{tier === "business" ? ` · ${seats} seat${seats > 1 ? "s" : ""}` : ""} · {region.taxNote}</span>
+                  </div>
+                  <div className="mt-1 text-sm text-ink-2">Paid once. Does not renew automatically.</div>
+                </button>
+              );
+            })}
+            {tier === "business" && (
+              <div className="flex items-center gap-3">
+                <button type="button" className="btn-secondary !px-3" onClick={() => setSeats((v) => Math.max(1, v - 1))} aria-label="Fewer seats">
+                  <IconMinus size={16} />
+                </button>
+                <span className="w-8 text-center text-[17px] font-medium">{seats}</span>
+                <button type="button" className="btn-secondary !px-3" onClick={() => setSeats((v) => Math.min(50, v + 1))} aria-label="More seats">
+                  <IconPlus size={16} />
+                </button>
+                <span className="text-sm text-ink-2">
+                  {fmtMoney(planPrice(tier, interval, 1))} per seat per {intervalWord(interval)}. Seats are fixed for a manual period; change them when you buy the next one.
+                </span>
+              </div>
+            )}
+            {tier === "business" && newWorkspace && <WorkspaceNameField value={workspaceName} onChange={setWorkspaceName} />}
+          </div>
         </section>
 
         <section>
@@ -259,20 +261,20 @@ export function OneTimeCheckoutDrawer({
               <MethodRow on={method === "qris"} onClick={() => setMethod("qris")} icon={<IconQr size={20} />} title="QRIS" sub="Scan with any Indonesian banking or e-wallet app (GoPay, OVO, DANA, ShopeePay, bank apps)" />
             )}
             {methods.includes("card") && (
-              <MethodRow on={method === "card"} onClick={() => setMethod("card")} icon={<IconCard size={20} />} title="Card" sub="Debit or credit card (Visa, Mastercard, JCB)" />
+              <MethodRow on={method === "card"} onClick={() => setMethod("card")} icon={<IconCard size={20} />} title="Card" sub="Debit or credit card (Visa, Mastercard, JCB), entered on Doku's secure page" />
             )}
             {method === "card" && (
               <div className="ml-2 space-y-3 border-l-2 border-line pl-4">
                 {s.card && <SavedCardRow card={s.card} selected={useSaved} onSelect={() => setUseSaved(true)} />}
                 <button type="button" onClick={() => setUseSaved(false)} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm ${!useSaved ? "border-ink" : "border-line-2 hover:bg-page"}`}>
-                  <span>{s.card ? "Use a different card" : "Enter card details"}</span>
+                  <span>{s.card ? "Use a different card" : "Pay with a new card"}</span>
                   <Radio on={!useSaved} />
                 </button>
                 {!useSaved && (
                   <>
-                    <CardForm value={form} onChange={setForm} nowIso={s.now} compact />
+                    <HostedCardNote action="pay" />
                     <Checkbox checked={saveCard} onChange={setSaveCard}>
-                      Save this card for future bills. We never charge it automatically unless you turn on auto-renewal. <Spec id="R-64" />
+                      Save this card for faster payments. We never charge it automatically unless you turn on auto-renewal. <Spec id="R-64" />
                     </Checkbox>
                   </>
                 )}
@@ -295,10 +297,23 @@ export function OneTimeCheckoutDrawer({
         </section>
 
         <p className="text-xs text-muted">
-          One-time purchases are not refundable. Prices {region.taxNote}. The plan does not renew automatically; you will receive a bill before it expires.
+          Manual payments are not refundable. Prices {region.taxNote}. The plan does not renew automatically; we remind you before it ends.
         </p>
       </div>
     </Drawer>
+    {hosted && (
+      <HostedCardPage
+        purpose="pay"
+        amount={amount}
+        description={`${planName(tier, interval)}${tier === "business" ? ` × ${seats} seats` : ""} · manual payment`}
+        onCancel={() => setHosted(false)}
+        onComplete={(card) => {
+          setHosted(false);
+          payByCard(card, saveCard);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -353,7 +368,7 @@ export function PaymentDetailDrawer({ billId, close }: { billId: string; close: 
           <p className="mt-2 max-w-sm text-sm text-ink-2">
             {planName(bill.tier, bill.interval)} is active from {fmtDate(bill.periodStart)} to {fmtDate(bill.periodEnd)}. Paid {fmtMoney(bill.amount)} via {p ? methodLabel(p.method, p.bank, p.cardLast4) : invoice?.method}. A receipt is on its way to {s.user.email}.
           </p>
-          <p className="mt-3 max-w-sm rounded-lg bg-page px-3 py-2 text-xs text-muted">This plan does not renew automatically. We will send you a bill 7 days before {fmtDate(bill.periodEnd)}.</p>
+          <p className="mt-3 max-w-sm rounded-lg bg-page px-3 py-2 text-xs text-muted">This plan does not renew automatically. We remind you 7 days before {fmtDate(bill.periodEnd)}; buy the next period after it ends, or turn on auto-renewal any time.</p>
           <div className="mt-6 flex gap-2">
             <Link href="/settings/billing" className="btn-secondary" onClick={close}>
               Go to Billing
@@ -605,17 +620,24 @@ export function ConvertModal({ close }: { close: () => void }) {
   const pe = prepaidEnd(s);
   const last = pe ? s.prepaid?.periods.find((p) => p.end === pe) : undefined;
   const [useSaved, setUseSaved] = useState(!!s.card);
-  const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hosted, setHosted] = useState(false);
   if (!pe || !last) {
     close();
     return null;
   }
   const amount = planPrice(last.tier, last.interval, last.seats ?? 1);
-  const card: Card | null = useSaved && s.card ? s.card : cardFormValid(form) ? cardFromForm(form, s.now) : null;
   const consentText = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(last.interval)} starting ${fmtDate(pe)} until I cancel. I can cancel any time from Plan settings and keep access until the end of the paid period.`;
+  function finish(card: Card) {
+    setBusy(true);
+    setTimeout(() => {
+      api.convertToAutoRenew({ ...card, behavior: card.behavior === "requires_action" ? "success" : card.behavior }, consentText);
+      close();
+    }, 500);
+  }
   return (
+    <>
     <Modal
       open
       onClose={close}
@@ -626,30 +648,20 @@ export function ConvertModal({ close }: { close: () => void }) {
           <button className="btn-secondary" onClick={close}>
             Not now
           </button>
-          <button
-            className="btn-primary"
-            disabled={!card || !consent || busy}
-            onClick={() => {
-              setBusy(true);
-              setTimeout(() => {
-                api.convertToAutoRenew({ ...card!, behavior: card!.behavior === "requires_action" ? "success" : card!.behavior }, consentText);
-                close();
-              }, 600);
-            }}
-          >
-            {busy ? "Saving…" : "Turn on auto-renewal"}
+          <button className="btn-primary" disabled={!consent || busy} onClick={() => (useSaved && s.card ? finish(s.card) : setHosted(true))}>
+            {busy ? "Saving…" : useSaved && s.card ? "Turn on auto-renewal" : "Continue to Doku"}
           </button>
         </>
       }
     >
       <div className="space-y-3 text-sm">
         <p>
-          Your {planName(last.tier, last.interval)} is paid until <strong className="text-ink">{fmtDate(pe)}</strong>. With auto-renewal we charge your card on that date and every {intervalWord(last.interval)} after, so you never get a bill or lose access. Nothing is charged today.
+          Your {planName(last.tier, last.interval)} is paid until <strong className="text-ink">{fmtDate(pe)}</strong> and stays as it is. With auto-renewal we charge your card on that date and every {intervalWord(last.interval)} after, so there is no gap and nothing to buy by hand.
         </p>
         <div className="rounded-lg bg-page px-3 py-2 text-xs text-ink-2">
           <div className="flex justify-between">
             <span>Today</span>
-            <strong className="text-ink">Nothing</strong>
+            <strong className="text-ink">{useSaved && s.card ? "Nothing" : `${fmtMoney(cardCheckAmount(s))} card check, reversed`}</strong>
           </div>
           <div className="flex justify-between">
             <span>First automatic charge</span>
@@ -664,13 +676,14 @@ export function ConvertModal({ close }: { close: () => void }) {
           <span>{s.card ? "Use a different card" : "Add a credit or debit card"}</span>
           <Radio on={!useSaved} />
         </button>
-        {!useSaved && <CardForm value={form} onChange={setForm} nowIso={s.now} compact />}
+        {!useSaved && <HostedCardNote action="save" />}
         <Checkbox checked={consent} onChange={setConsent}>
           {consentText} <Spec id="R-65" />
         </Checkbox>
-        <p className="text-xs text-muted">Any open bill for this plan is cancelled; auto-renewal replaces it.</p>
       </div>
     </Modal>
+    {hosted && <HostedCardPage purpose="save" description={`Auto-renewal for ${planName(last.tier, last.interval)} from ${fmtDate(pe)}`} onCancel={() => setHosted(false)} onComplete={(card) => { setHosted(false); finish(card); }} />}
+    </>
   );
 }
 

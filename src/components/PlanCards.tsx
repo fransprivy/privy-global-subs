@@ -1,7 +1,7 @@
 "use client";
 
 import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
-import { activeSubscription, classifyChange, currentTier, isPrepaidUser, isPromoUser, promoInfo, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
+import { activeSubscription, classifyChange, currentTier, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
@@ -20,6 +20,7 @@ export function useCta() {
   const ws = workspaceView(s);
   const ownsBusiness = tier === "business";
   const promo = isPromoUser(s) ? promoInfo(s) : null;
+  const manual = isOneTimeUser(s);
 
   function ctaFor(target: Tier, interval: Interval): Cta {
     if (target === "enterprise") return { label: "Talk to sales", kind: "sales" };
@@ -35,7 +36,7 @@ export function useCta() {
     if (ws.kind === "business" && target === "personal" && !sub && workspaceStatus(s) === "expired") {
       return { label: "Buy in your Individual workspace", kind: "switch" };
     }
-    // Free voucher period: every paid plan can be started (today or when the free period ends); Free comes back by itself.
+    // Free voucher period: any paid plan can be started; the same plan can also start when the free period ends.
     if (promo) {
       if (target === "free") return { label: `Free again on ${fmtDate(promo.until)}`, kind: "disabled" };
       if (ws.kind === "individual" && promo.tier === "business" && target === "personal") return { label: "Included with Pro", kind: "disabled" };
@@ -45,13 +46,15 @@ export function useCta() {
       if (tier === "free") return { label: "Your current plan", kind: "current" };
       if (prepaid) return { label: `Prepaid until ${fmtDate(prepaidEnd(s)!)}`, kind: "disabled" };
       if (sub?.status === "cancel_scheduled") return { label: `Ends ${fmtDate(sub.currentPeriodEnd)}`, kind: "disabled" };
-      return { label: "Downgrade to Free", kind: "cancel" };
+      return { label: "Cancel plan", kind: "cancel" };
     }
     const t = target as PaidTier;
     if (sub?.scheduledChange && sub.scheduledChange.tier === t && sub.scheduledChange.interval === interval) {
       return { label: `Scheduled for ${fmtDate(sub.scheduledChange.effectiveAt)}`, kind: "scheduled" };
     }
     const d = classifyChange(s, { tier: t, interval });
+    // Indonesia manual payment: only an upgrade can be bought before the current period ends (R-66).
+    if (manual && d !== "tier_up" && d !== "same") return { label: `Buy after ${fmtDate(prepaidEnd(s)!)}`, kind: "disabled" };
     switch (d) {
       case "subscribe":
         return { label: `Upgrade to ${TIER_LABEL[t]}`, kind: "action" };
@@ -60,7 +63,8 @@ export function useCta() {
       case "tier_up":
         return { label: `Upgrade to ${TIER_LABEL[t]}`, kind: "action" };
       case "tier_down":
-        return { label: `Downgrade to ${TIER_LABEL[t]}`, kind: "action" };
+        // No Pro to Personal change (R-29): cancel Pro, then buy Personal after it ends.
+        return { label: "Available after Pro ends", kind: "disabled" };
       case "interval_up":
         return { label: "Switch to yearly", kind: "action" };
       case "interval_down":
@@ -170,6 +174,10 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
             Save {fmtMoney(ANNUAL_SAVINGS[tier].amount)} · {ANNUAL_SAVINGS[tier].pct}%
           </p>
         )}
+        <div className={`mt-4 rounded-xl px-3 py-2.5 ${tier === "free" ? "bg-[#f5f5f5]" : "bg-brand-tint"}`}>
+          <p className="text-[14px] font-semibold text-ink">{spec.mainBenefit}</p>
+          <p className="mt-0.5 text-xs text-ink-2">{spec.mainBenefitDetail}</p>
+        </div>
         <div className="mt-4">
           <CtaButton target={tier} interval={interval} />
         </div>

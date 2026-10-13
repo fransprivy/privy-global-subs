@@ -11,7 +11,7 @@ import { useStore } from "@/lib/store";
 const TAG_STYLE: Record<string, string> = {
   "Start here": "bg-brand text-white",
   Upgrade: "bg-info-tint text-info",
-  Downgrade: "bg-success-tint text-success",
+  "Billing switch": "bg-success-tint text-success",
   Failure: "bg-danger-tint text-danger",
   Migration: "bg-gold-tint text-gold",
   Cancel: "bg-[#eeeeee] text-ink-2",

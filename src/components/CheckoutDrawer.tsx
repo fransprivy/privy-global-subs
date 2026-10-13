@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ANNUAL_SAVINGS, TIER_LABEL } from "@/lib/catalog";
-import { activeSubscription, classifyChange, intervalWord, periodEnd, planName, planPrice, workspaceStatus } from "@/lib/engine";
-import { addDays, daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
+import { activeSubscription, intervalWord, isIndonesia, periodEnd, planName, planPrice, workspaceStatus } from "@/lib/engine";
+import { daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
 import { IconCheckCircle, IconChevronRight, IconGift, IconMinus, IconPlus, IconShield, IconWarning } from "./Icons";
-import { CardForm, cardFormValid, cardFromForm, Radio, SavedCardRow, ThreeDSModal, WalletButtons, type CardFormValue } from "./payments";
+import { cardProvider, HostedCardNote, HostedCardPage, Radio, SavedCardRow, ThreeDSModal } from "./payments";
 import { Checkbox, Drawer, Spec } from "./ui";
 
-export type CheckoutMode = "subscribe" | "upgrade" | "interval";
+export type CheckoutMode = "subscribe" | "upgrade";
 
 export function CheckoutDrawer({
   open,
@@ -35,7 +35,7 @@ export function CheckoutDrawer({
   const [interval, setInterval] = useState<Interval>(initialInterval);
   const [seats, setSeats] = useState(Math.max(1, initialSeats));
   const [useSaved, setUseSaved] = useState(!!s.card);
-  const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
+  const [hosted, setHosted] = useState(false);
   const [consent, setConsent] = useState(false);
   const [ack, setAck] = useState(false);
   const [stage, setStage] = useState<"form" | "processing" | "3ds" | "declined" | "success">("form");
@@ -50,21 +50,18 @@ export function CheckoutDrawer({
   const amount = planPrice(tier, interval, seats);
   const today = startOfDayUTC(s.now);
   const anchorDay = dayOfMonthUTC(today);
-  const [direction] = useState(() => classifyChange(s, { tier, interval }));
   const [frozen] = useState(() => ({ sub, remaining: sub ? Math.max(0, daysBetween(startOfDayUTC(s.now), sub.currentPeriodEnd)) : 0 }));
   const remaining = frozen.remaining;
   const oldSub = frozen.sub;
-  const rolled = direction === "interval_up" && oldSub && oldSub.status !== "past_due" ? remaining : 0;
-  const newEnd = useMemo(() => {
-    const e = periodEnd(today, interval, anchorDay);
-    return rolled > 0 ? addDays(e, rolled) : e;
-  }, [today, interval, anchorDay, rolled]);
+  const newEnd = useMemo(() => periodEnd(today, interval, anchorDay), [today, interval, anchorDay]);
+  const provider = cardProvider(isIndonesia(s));
+  const [paidCard, setPaidCard] = useState<Card | null>(null);
 
   const isTierUpgrade = mode === "upgrade";
-  const card: Card | null = useSaved && s.card ? s.card : cardFormValid(form) ? cardFromForm(form, s.now) : null;
+  const card: Card | null = paidCard ?? (useSaved && s.card ? s.card : null);
   const consentText = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(interval)}${mode === "subscribe" ? " starting today" : ""} until I cancel. I can cancel any time from Plan settings and keep access until the end of the paid period.`;
   const ackText = oldSub ? `I understand my current ${planName(oldSub.tier, oldSub.interval)}, paid until ${fmtDate(oldSub.currentPeriodEnd)} (${remaining} days), will end today and is not refunded or credited.` : "";
-  const canPay = !!card && consent && (!isTierUpgrade || ack) && stage === "form";
+  const canPay = (useSaved ? !!s.card : true) && consent && (!isTierUpgrade || ack) && stage === "form";
 
   function complete(finalCard: Card) {
     if (mode === "subscribe") {
@@ -76,6 +73,10 @@ export function CheckoutDrawer({
   }
 
   function pay() {
+    if (!useSaved) {
+      setHosted(true);
+      return;
+    }
     if (!card) return;
     setStage("processing");
     setTimeout(() => {
@@ -99,7 +100,7 @@ export function CheckoutDrawer({
   }
 
   const savings = ANNUAL_SAVINGS[tier];
-  const titles: Record<CheckoutMode, string> = { subscribe: "Checkout", upgrade: "Checkout", interval: "Switch to yearly billing" };
+  const titles: Record<CheckoutMode, string> = { subscribe: "Checkout", upgrade: "Upgrade" };
 
   if (stage === "success") {
     const end = fmtDate(newEnd);
@@ -175,11 +176,6 @@ export function CheckoutDrawer({
                   {fmtDate(newEnd)}, {fmtMoney(amount)}
                 </strong>
               </div>
-              {rolled > 0 && (
-                <div className="mt-1 text-[11px] text-muted">
-                  Your {rolled} remaining days are added, so the new end date is {fmtDate(newEnd)}.
-                </div>
-              )}
             </div>
             {stage === "declined" && (
               <div className="flex items-start gap-2 rounded-lg bg-danger-tint px-3 py-2 text-sm text-danger">
@@ -190,6 +186,7 @@ export function CheckoutDrawer({
                     className="mt-1 text-xs font-semibold underline"
                     onClick={() => {
                       setUseSaved(false);
+                      setPaidCard(null);
                       setStage("form");
                     }}
                   >
@@ -200,7 +197,7 @@ export function CheckoutDrawer({
               </div>
             )}
             <button className="btn-primary h-12 w-full text-base" disabled={!canPay} onClick={pay}>
-              <IconShield size={18} /> {stage === "processing" ? "Processing…" : reactivating ? `Reactivate and pay ${fmtMoney(amount)}` : `Pay ${fmtMoney(amount)}`}
+              <IconShield size={18} /> {stage === "processing" ? "Processing…" : !useSaved ? `Continue to ${provider.name === "stripe" ? "Stripe" : "Doku"} to pay ${fmtMoney(amount)}` : reactivating ? `Reactivate and pay ${fmtMoney(amount)}` : `Pay ${fmtMoney(amount)}`}
             </button>
             <p className="text-center text-[11px] text-muted">
               Your bank may ask you to confirm this payment. <Spec id="UX-14" />
@@ -215,7 +212,7 @@ export function CheckoutDrawer({
               {(["monthly", "annual"] as Interval[]).map((iv) => {
                 const price = planPrice(tier, iv, seats);
                 const selected = iv === interval;
-                const disabled = mode === "interval" && iv === "monthly";
+                const disabled = false;
                 return (
                   <button
                     key={iv}
@@ -300,16 +297,7 @@ export function CheckoutDrawer({
                 </span>
                 <Radio on={!useSaved} />
               </button>
-              {!useSaved && <CardForm value={form} onChange={setForm} nowIso={s.now} />}
-              <div className="flex items-center gap-3 text-xs text-muted">
-                <span className="h-px flex-1 bg-line" /> or pay with <span className="h-px flex-1 bg-line" />
-              </div>
-              <WalletButtons
-                onPick={() => {
-                  setUseSaved(false);
-                  setForm({ number: "4242 4242 4242 4242", exp: "12 / 27", cvc: "123", name: s.user.name });
-                }}
-              />
+              {!useSaved && <HostedCardNote action="pay" />}
             </div>
           </section>
 
@@ -326,6 +314,19 @@ export function CheckoutDrawer({
           </section>
         </div>
       </Drawer>
+      {hosted && (
+        <HostedCardPage
+          purpose="pay"
+          amount={amount}
+          description={`${planName(tier, interval)}${tier === "business" ? ` × ${seats} seat${seats > 1 ? "s" : ""}` : ""}, renews every ${intervalWord(interval)}`}
+          onCancel={() => setHosted(false)}
+          onComplete={(c) => {
+            setHosted(false);
+            setPaidCard(c);
+            complete(c);
+          }}
+        />
+      )}
       {stage === "3ds" && card && (
         <ThreeDSModal
           amount={fmtMoney(amount)}

@@ -7,11 +7,10 @@ import {
   activeSubscription,
   allCards,
   brandLabel,
+  cardCheckAmount,
   cardId,
   classifyChange,
-  CONFIG,
   currentSeats,
-  downgradeLosses,
   handoverOptions,
   isPromoUser,
   monthsText,
@@ -33,13 +32,13 @@ import {
   planPrice,
   prepaidEnd,
 } from "@/lib/engine";
-import { addDays, daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
+import { daysBetween, dayOfMonthUTC, fmtDate, fmtMoney, startOfDayUTC } from "@/lib/format";
 import type { PromoInfo } from "@/lib/engine";
 import { useAppState } from "@/lib/store";
 import type { Card, Interval, PaidTier } from "@/lib/types";
-import { CheckoutDrawer, type CheckoutMode } from "./CheckoutDrawer";
-import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, IconPlus, IconWarning } from "./Icons";
-import { CardBrandBadge, CardForm, cardFormValid, cardFromForm, Radio, ThreeDSModal, type CardFormValue } from "./payments";
+import { CheckoutDrawer } from "./CheckoutDrawer";
+import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, IconPlus } from "./Icons";
+import { CardBrandBadge, cardProvider, HostedCardNote, HostedCardPage, Radio, ThreeDSModal } from "./payments";
 import { ConvertModal, OneTimeCheckoutDrawer, PaymentDetailDrawer, PurchaseTypeModal } from "./onetime";
 import { Checkbox, Modal, Spec } from "./ui";
 
@@ -51,7 +50,6 @@ export type Flow =
   | { type: "addCard"; makeDefault?: boolean }
   | { type: "removeCard"; id: string }
   | { type: "seats" }
-  | { type: "payBill"; billId: string }
   | { type: "paymentDetail"; billId: string }
   | { type: "convert" }
   | { type: "invite" }
@@ -107,8 +105,6 @@ function FlowHost({ flow, close }: { flow: Flow; close: () => void }) {
       return <RemoveCardModal close={close} id={flow.id} />;
     case "seats":
       return <SeatsModal close={close} />;
-    case "payBill":
-      return <PayBillFlow billId={flow.billId} close={close} />;
     case "paymentDetail":
       return <PaymentDetailDrawer billId={flow.billId} close={close} />;
     case "convert":
@@ -148,44 +144,24 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
   const [direction] = useState(() => classifyChange(s, { tier, interval }));
   const [prepaid] = useState(() => isPrepaidUser(s));
   const [seats, setSeats] = useState(seatsIn ?? (tier === "business" ? Math.max(1, s.workspace.members.length) : 1));
-  const [step, setStep] = useState<"decide" | "checkout">(direction === "subscribe" ? "checkout" : "decide");
-  const [checkoutMode, setCheckoutMode] = useState<CheckoutMode>("subscribe");
   // Indonesia: choose auto-renewal vs one-time first (M-10). Global: recurring only.
   const [indonesia] = useState(() => isIndonesia(s));
   const [oneTimeUser] = useState(() => isOneTimeUser(s));
   const [purchase, setPurchase] = useState<"recurring" | "one_time" | null>(null);
   const [oneTimeStage, setOneTimeStage] = useState<"checkout" | "detail">("checkout");
+  // An upgrade always starts today (R-26): the user confirms the days that are given up first.
+  const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
 
   const onDone = useCallback(() => close(), [close]);
 
-  // Free voucher period: the user chooses between starting today (free days forfeited) and starting when it ends.
+  // Free voucher period: the user chooses between starting today (free days forfeited) and starting when it ends (same plan only).
   const [promo] = useState(() => (isPromoUser(s) ? promoInfo(s) : null));
-  const [promoChoice, setPromoChoice] = useState<"now" | "later" | null>(null);
+  const [promoChoice, setPromoChoice] = useState<"now" | "later" | null>(() => (isPromoUser(s) && promoInfo(s)!.tier !== tier ? "now" : null));
   if (promo && promoChoice === null) {
     return <PromoPurchaseModal promo={promo} tier={tier} interval={interval} seats={seats} close={close} onPick={setPromoChoice} />;
   }
   if (promo && promoChoice === "later") {
     return <OptInModal close={close} tier={tier} interval={interval} promo />;
-  }
-
-  const needsPurchaseChoice = (indonesia || oneTimeUser) && !sub && purchase === null;
-  if (needsPurchaseChoice) {
-    return <PurchaseTypeModal tier={tier} interval={interval} seats={seats} close={close} onPick={setPurchase} />;
-  }
-  if (purchase === "one_time") {
-    if (oneTimeStage === "detail") {
-      const pp = pendingPayment(s);
-      if (!pp) {
-        close();
-        return null;
-      }
-      return <PaymentDetailDrawer billId={pp.id} close={close} />;
-    }
-    return <OneTimeCheckoutDrawer tier={tier} interval={interval} seats={seats} close={close} onPaymentCreated={() => setOneTimeStage("detail")} />;
-  }
-  // One-time (Indonesia) user choosing auto-renewal, or a migrated prepaid user: subscription starts when prepaid time ends (R-43, R-65).
-  if ((prepaid && !promo) || oneTimeUser) {
-    return <OptInModal close={close} tier={tier} interval={interval} fromUpgrade />;
   }
   if (promo) {
     return <CheckoutDrawer open onClose={close} mode="subscribe" tier={tier} interval={interval} seats={seats} onDone={onDone} />;
@@ -195,65 +171,64 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
     close();
     return null;
   }
+  // Pro to Personal is not a plan change: the user cancels Pro and buys Personal after it ends.
+  if (direction === "tier_down") {
+    return <NoDowngradeModal close={close} />;
+  }
 
-  if (step === "checkout" || direction === "subscribe") {
-    return (
-      <CheckoutDrawer
-        open
-        onClose={close}
-        mode={direction === "subscribe" ? "subscribe" : checkoutMode}
-        tier={tier}
-        interval={interval}
-        seats={seats}
-        onDone={onDone}
-      />
-    );
+  // Prepaid (migrated) and Indonesia manual payment users have no subscription to change.
+  if (prepaid || oneTimeUser) {
+    if (direction === "tier_up") {
+      if (!upgradeConfirmed) return <UpgradeNowModal tier={tier} interval={interval} seats={seats} setSeats={setSeats} close={close} onContinue={() => setUpgradeConfirmed(true)} />;
+      if (indonesia && purchase === null) return <PurchaseTypeModal tier={tier} interval={interval} seats={seats} close={close} onPick={setPurchase} />;
+      if (purchase === "one_time") {
+        if (oneTimeStage === "detail") {
+          const pp = pendingPayment(s);
+          if (!pp) {
+            close();
+            return null;
+          }
+          return <PaymentDetailDrawer billId={pp.id} close={close} />;
+        }
+        return <OneTimeCheckoutDrawer tier={tier} interval={interval} seats={seats} close={close} onPaymentCreated={() => setOneTimeStage("detail")} />;
+      }
+      return <CheckoutDrawer open onClose={close} mode="subscribe" tier={tier} interval={interval} seats={seats} onDone={onDone} />;
+    }
+    // Same plan, other interval: a migrated prepaid user turns on auto-renewal with that interval from the end date.
+    if (prepaid && !oneTimeUser) return <OptInModal close={close} tier={tier} interval={interval} />;
+    return <ManualNextPeriodModal close={close} />;
+  }
+
+  // Free users.
+  if (direction === "subscribe") {
+    if (indonesia && purchase === null) return <PurchaseTypeModal tier={tier} interval={interval} seats={seats} close={close} onPick={setPurchase} />;
+    if (purchase === "one_time") {
+      if (oneTimeStage === "detail") {
+        const pp = pendingPayment(s);
+        if (!pp) {
+          close();
+          return null;
+        }
+        return <PaymentDetailDrawer billId={pp.id} close={close} />;
+      }
+      return <OneTimeCheckoutDrawer tier={tier} interval={interval} seats={seats} close={close} onPaymentCreated={() => setOneTimeStage("detail")} />;
+    }
+    return <CheckoutDrawer open onClose={close} mode="subscribe" tier={tier} interval={interval} seats={seats} onDone={onDone} />;
   }
 
   if (direction === "tier_up" && sub) {
-    return (
-      <UpgradeTimingModal
-        tier={tier}
-        interval={interval}
-        seats={seats}
-        setSeats={setSeats}
-        close={close}
-        onNow={() => {
-          setCheckoutMode("upgrade");
-          setStep("checkout");
-        }}
-        onScheduled={(consentText) => {
-          api.scheduleChange({ kind: "scheduled_upgrade", tier, interval, seats }, consentText);
-          close();
-        }}
-      />
-    );
+    if (!upgradeConfirmed) return <UpgradeNowModal tier={tier} interval={interval} seats={seats} setSeats={setSeats} close={close} onContinue={() => setUpgradeConfirmed(true)} />;
+    return <CheckoutDrawer open onClose={close} mode="upgrade" tier={tier} interval={interval} seats={seats} onDone={onDone} />;
   }
 
-  if (direction === "interval_up" && sub) {
+  if ((direction === "interval_up" || direction === "interval_down") && sub) {
     return (
-      <IntervalUpModal
-        tier={tier}
-        seats={sub.seats}
-        close={close}
-        onContinue={() => {
-          setCheckoutMode("interval");
-          setStep("checkout");
-        }}
-      />
-    );
-  }
-
-  if ((direction === "tier_down" || direction === "interval_down") && sub) {
-    return (
-      <DowngradeModal
+      <IntervalChangeModal
         tier={tier}
         interval={interval}
-        seats={tier === "business" ? sub.seats : 1}
-        kind={direction === "tier_down" ? "downgrade" : "interval_down"}
         close={close}
         onConfirm={(consentText) => {
-          api.scheduleChange({ kind: direction === "tier_down" ? "downgrade" : "interval_down", tier, interval, seats: tier === "business" ? sub.seats : 1 }, consentText);
+          api.scheduleChange({ kind: direction, tier, interval, seats: sub.seats }, consentText);
           close();
         }}
       />
@@ -264,73 +239,48 @@ function PlanFlow({ tier, interval, seats: seatsIn, close }: { tier: PaidTier; i
   return null;
 }
 
-/* M-02 */
-function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onScheduled }: { tier: PaidTier; interval: Interval; seats: number; setSeats: (n: number) => void; close: () => void; onNow: () => void; onScheduled: (consentText?: string) => void }) {
+/* M-02: an upgrade starts today. Days left on the current plan are given up (R-26). */
+function UpgradeNowModal({ tier, interval, seats, setSeats, close, onContinue }: { tier: PaidTier; interval: Interval; seats: number; setSeats: (n: number) => void; close: () => void; onContinue: () => void }) {
   const { s } = useAppState();
-  const sub = activeSubscription(s)!;
+  const sub = activeSubscription(s);
   const today = startOfDayUTC(s.now);
-  const remaining = Math.max(0, daysBetween(today, sub.currentPeriodEnd));
+  const paidUntil = sub ? sub.currentPeriodEnd : prepaidEnd(s);
+  const remaining = paidUntil ? Math.max(0, daysBetween(today, paidUntil)) : 0;
+  const currentName = sub ? planName(sub.tier, sub.interval) : `${TIER_LABEL[s.prepaid?.tier ?? "personal"]}`;
   const amount = planPrice(tier, interval, seats);
-  const scheduledPrimary = remaining > CONFIG.smartDefaultThresholdDays;
-  const target = planName(tier, interval);
-  const pendingNote = sub.scheduledChange || sub.cancelAtPeriodEnd;
-  const pastDue = sub.status === "past_due";
-  const newEndNow = periodEnd(today, interval, dayOfMonthUTC(today));
-  const cancelled = sub.cancelAtPeriodEnd;
-  const [renewConsent, setRenewConsent] = useState(false);
-  const renewText = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(interval)} from ${fmtDate(sub.currentPeriodEnd)} until I cancel.`;
-  const scheduleNow = () => onScheduled(cancelled ? renewText : undefined);
-
-  const Primary = ({ onClick, children }: { onClick: () => void; children: React.ReactNode }) => (
-    <button className="btn-primary h-12 w-full text-base" onClick={onClick}>
-      {children}
-    </button>
-  );
-  const Secondary = ({ onClick, children }: { onClick: () => void; children: React.ReactNode }) => (
-    <button className="btn-secondary h-12 w-full text-base" onClick={onClick}>
-      {children}
-    </button>
-  );
-
-  const nowBtn = (
-    <div className="space-y-1">
-      {scheduledPrimary ? (
-        <Secondary onClick={onNow}>Upgrade now and pay {fmtMoney(amount)}</Secondary>
-      ) : (
-        <Primary onClick={onNow}>Upgrade now and pay {fmtMoney(amount)}</Primary>
-      )}
-      <p className="text-center text-xs text-muted">
-        Pro starts today. Your remaining {remaining} days of {planName(sub.tier, sub.interval)} are forfeited.
-      </p>
-    </div>
-  );
-  const laterBtn = (
-    <div className="space-y-1">
-      {cancelled && (
-        <Checkbox checked={renewConsent} onChange={setRenewConsent} id="upgrade-renew-consent">
-          {renewText}
-        </Checkbox>
-      )}
-      {scheduledPrimary ? (
-        <button className="btn-primary h-12 w-full text-base" disabled={cancelled && !renewConsent} onClick={scheduleNow}>
-          Upgrade on {fmtDate(sub.currentPeriodEnd)} instead <IconArrowRight size={16} />
-        </button>
-      ) : (
-        <button className="btn-secondary h-12 w-full text-base" disabled={cancelled && !renewConsent} onClick={scheduleNow}>
-          Upgrade on {fmtDate(sub.currentPeriodEnd)} instead
-        </button>
-      )}
-      <p className="text-center text-xs text-muted">Nothing charged until then. Nothing lost. You can undo any time before.</p>
-    </div>
-  );
+  const newEnd = periodEnd(today, interval, dayOfMonthUTC(today));
+  const pendingNote = sub && (sub.scheduledChange || sub.cancelAtPeriodEnd);
+  const [ack, setAck] = useState(false);
+  const needsAck = !sub; // subscriptions confirm again in checkout
   return (
-    <Modal open onClose={close} title={`Upgrade to ${TIER_LABEL[tier]}`} spec="M-02" width="max-w-xl">
+    <Modal
+      open
+      onClose={close}
+      title={`Upgrade to ${TIER_LABEL[tier]} today`}
+      spec="M-02"
+      width="max-w-xl"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Keep {currentName}
+          </button>
+          <button className="btn-primary" disabled={needsAck && remaining > 0 && !ack} onClick={onContinue}>
+            Continue to payment <IconArrowRight size={16} />
+          </button>
+        </>
+      }
+    >
       <div className="space-y-4">
         <p>
-          You are on <strong className="text-ink">{planName(sub.tier, sub.interval)}</strong>, paid until <strong className="text-ink">{fmtDate(sub.currentPeriodEnd)}</strong> ({remaining} days left).
-          {pastDue && " Your last renewal payment failed; a successful upgrade payment clears that."}
+          You are on <strong className="text-ink">{currentName}</strong>
+          {paidUntil ? (
+            <>
+              , paid until <strong className="text-ink">{fmtDate(paidUntil)}</strong> ({remaining} days left)
+            </>
+          ) : null}
+          . {TIER_LABEL[tier]} starts today and runs until {fmtDate(newEnd)}.
+          {sub?.status === "past_due" && " Your last renewal payment failed; this payment clears it."}
         </p>
-
         {tier === "business" && (
           <div className="flex items-center gap-3 rounded-lg border border-line bg-page px-3 py-2">
             <span className="text-sm text-ink">Member seats</span>
@@ -346,122 +296,135 @@ function UpgradeTimingModal({ tier, interval, seats, setSeats, close, onNow, onS
             </span>
           </div>
         )}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className={`rounded-xl border p-4 ${scheduledPrimary ? "border-line" : "border-ink"}`}>
-            <p className="text-sm font-semibold text-ink">Upgrade now</p>
-            <ul className="mt-2 space-y-1 text-xs text-ink-2">
-              <li>Today: charged {fmtMoney(amount)}</li>
-              <li>{target} starts today, runs to {fmtDate(newEndNow)}</li>
-              <li className="text-danger">Remaining {remaining} days of {planName(sub.tier, sub.interval)} are not refunded or credited</li>
-              <li>Your billing date moves to the {dayOfMonthUTC(today)}{ordinal(dayOfMonthUTC(today))}</li>
-            </ul>
+        <div className="rounded-lg bg-page px-3 py-2 text-xs text-ink-2">
+          <div className="flex justify-between">
+            <span>Today</span>
+            <strong className="text-ink">{fmtMoney(amount)}</strong>
           </div>
-          <div className={`rounded-xl border p-4 ${scheduledPrimary ? "border-ink" : "border-line"}`}>
-            <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-              Upgrade when my plan ends {scheduledPrimary && <span className="chip bg-success-tint text-success">Recommended</span>}
-            </p>
-            <ul className="mt-2 space-y-1 text-xs text-ink-2">
-              <li>Today: nothing charged</li>
-              <li>{target} starts {fmtDate(sub.currentPeriodEnd)}, charged {fmtMoney(amount)} then</li>
-              <li className="text-success">You use every day you already paid for</li>
-              <li>Billing date stays the same</li>
-            </ul>
+          <div className="flex justify-between">
+            <span>{TIER_LABEL[tier]} runs</span>
+            <strong className="text-ink">
+              {fmtDate(today)} to {fmtDate(newEnd)}
+            </strong>
           </div>
-        </div>
-
-        {pendingNote && (
-          <p className="flex items-start gap-2 rounded-lg bg-info-tint px-3 py-2 text-xs text-info">
-            <IconInfo size={16} className="mt-0.5 shrink-0" /> Your pending {sub.cancelAtPeriodEnd ? "cancellation" : "plan change"} will be removed by this upgrade.
-          </p>
-        )}
-
-        <div className="space-y-3 pt-1">
-          {scheduledPrimary ? laterBtn : nowBtn}
-          {scheduledPrimary ? nowBtn : laterBtn}
-          {s.ui.showSpecTags && (
-            <p className="text-center text-[11px] text-muted">
-              Smart default: the scheduled option is primary when more than {CONFIG.smartDefaultThresholdDays} days remain. <Spec id="UX-04" />
-            </p>
+          {remaining > 0 && (
+            <div className="flex justify-between text-danger">
+              <span>Days left on {currentName}</span>
+              <strong>{remaining} days, not refunded or credited</strong>
+            </div>
           )}
         </div>
+        {pendingNote && (
+          <p className="flex items-start gap-2 rounded-lg bg-info-tint px-3 py-2 text-xs text-info">
+            <IconInfo size={16} className="mt-0.5 shrink-0" /> Your pending {sub!.cancelAtPeriodEnd ? "cancellation" : "billing change"} is removed by this upgrade.
+          </p>
+        )}
+        {needsAck && remaining > 0 && (
+          <Checkbox checked={ack} onChange={setAck} id="upgrade-ack">
+            I understand my {currentName}, paid until {fmtDate(paidUntil!)}, ends today and the {remaining} days left are not refunded or credited.
+          </Checkbox>
+        )}
       </div>
     </Modal>
   );
 }
 
-/* M-03 */
-function IntervalUpModal({ tier, seats, close, onContinue }: { tier: PaidTier; seats: number; close: () => void; onContinue: () => void }) {
+/* Pro to Personal: there is no downgrade. Cancel Pro, then buy Personal after it ends (R-29). */
+function NoDowngradeModal({ close }: { close: () => void }) {
   const { s } = useAppState();
-  const sub = activeSubscription(s)!;
-  const today = startOfDayUTC(s.now);
-  const remaining = sub.status === "past_due" ? 0 : Math.max(0, daysBetween(today, sub.currentPeriodEnd));
-  const amount = planPrice(tier, "annual", seats);
-  const newEnd = addDays(periodEnd(today, "annual", dayOfMonthUTC(today)), remaining);
-  const monthlyYear = planPrice(tier, "monthly", seats) * 12;
+  const flows = useFlows();
+  const sub = activeSubscription(s);
+  const end = sub ? sub.currentPeriodEnd : prepaidEnd(s);
   return (
     <Modal
       open
       onClose={close}
-      title="Switch to yearly billing"
-      spec="M-03"
+      title="Moving from Pro to Personal"
+      spec="M-04"
       footer={
         <>
           <button className="btn-secondary" onClick={close}>
-            Keep monthly
+            Keep Pro
           </button>
-          <button className="btn-primary" onClick={onContinue}>
-            Continue to payment
+          {sub && sub.status !== "cancel_scheduled" && (
+            <button className="btn-primary" onClick={() => flows.open({ type: "cancel" })}>
+              Cancel Pro
+            </button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        {sub ? (
+          <p>
+            Pro cannot be switched to Personal. Cancel Pro instead: you keep Pro{end ? ` until ${fmtDate(end)}` : ""}, nothing more is charged, and on that date {s.workspace.name} becomes read-only.
+          </p>
+        ) : (
+          <p>
+            Pro cannot be switched to Personal. Your Pro plan is paid until {end ? fmtDate(end) : "its end date"} and does not renew by itself; on that date {s.workspace.name} becomes read-only and your account moves to Free.
+          </p>
+        )}
+        <p>After that, buy Personal from the plan page in your Individual workspace. Your documents stay where they are.</p>
+      </div>
+    </Modal>
+  );
+}
+
+/* Indonesia manual payment: the next period can only be bought after the current one ends (R-66). */
+function ManualNextPeriodModal({ close }: { close: () => void }) {
+  const { s } = useAppState();
+  const flows = useFlows();
+  const pe = prepaidEnd(s);
+  return (
+    <Modal
+      open
+      onClose={close}
+      title={pe ? `Buy your next period after ${fmtDate(pe)}` : "Buy your next period"}
+      spec="R-66"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={close}>
+            Close
+          </button>
+          <button className="btn-primary" onClick={() => flows.open({ type: "convert" })}>
+            Turn on auto-renewal
           </button>
         </>
       }
     >
-      <div className="space-y-3">
+      <div className="space-y-3 text-sm">
         <p>
-          We charge <strong className="text-ink">{fmtMoney(amount)}</strong> today. Your <strong className="text-ink">{remaining} remaining days</strong> are added, so your plan runs until <strong className="text-ink">{fmtDate(newEnd)}</strong> and then renews yearly.
+          Your current plan is paid until <strong className="text-ink">{pe ? fmtDate(pe) : "its end date"}</strong>. A new period, with any plan, monthly or yearly, can be bought once it has ended. Paying early is not possible, so periods never overlap.
         </p>
-        <div className="rounded-lg bg-success-tint px-3 py-2 text-sm text-success">
-          Save {ANNUAL_SAVINGS[tier].pct}% compared to monthly ({fmtMoney(monthlyYear)} a year on monthly billing). <Spec id="UX-21" />
-        </div>
-        <div className="rounded-lg bg-page px-3 py-2 text-xs text-ink-2">
-          <div className="flex justify-between"><span>Today</span><strong className="text-ink">{fmtMoney(amount)}</strong></div>
-          <div className="flex justify-between"><span>New end date</span><strong className="text-ink">{fmtDate(newEnd)}</strong></div>
-          <div className="flex justify-between"><span>Next renewal</span><strong className="text-ink">{fmtDate(newEnd)}, {fmtMoney(amount)}</strong></div>
-        </div>
-        <p className="text-xs text-muted">Unused monthly envelopes are not carried over; the yearly allowance starts today.</p>
+        <p>To continue without a gap, turn on auto-renewal: your card is charged on {pe ? fmtDate(pe) : "the end date"}, not before.</p>
       </div>
     </Modal>
   );
 }
 
-/* M-04 and M-04b */
-function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tier: PaidTier; interval: Interval; seats: number; kind: "downgrade" | "interval_down"; close: () => void; onConfirm: (consentText?: string) => void }) {
+/* M-04b: monthly to yearly and yearly to monthly always take effect at the end of the current period (R-28). */
+function IntervalChangeModal({ tier, interval, close, onConfirm }: { tier: PaidTier; interval: Interval; close: () => void; onConfirm: (consentText?: string) => void }) {
   const { s } = useAppState();
-  const flows = useFlows();
   const sub = activeSubscription(s)!;
   const effective = sub.currentPeriodEnd;
-  const newAmount = planPrice(tier, interval, seats);
-  const losses = kind === "downgrade" ? downgradeLosses(s) : [];
-  const isBusinessDown = kind === "downgrade" && sub.tier === "business";
-  const [understood, setUnderstood] = useState(kind !== "downgrade");
+  const newAmount = planPrice(tier, interval, sub.seats);
   const cancelled = sub.cancelAtPeriodEnd;
   const [renewConsent, setRenewConsent] = useState(false);
   const renewText = `I agree that Privy will charge ${fmtMoney(newAmount)} to my card every ${intervalWord(interval)} from ${fmtDate(effective)} until I cancel.`;
-  const teamDocs = isBusinessDown ? (s.workspace.documents ?? []).length : 0;
-
+  const word = interval === "annual" ? "yearly" : "monthly";
   return (
     <Modal
       open
       onClose={close}
-      title={cancelled ? `Resume and switch to ${planName(tier, interval)} on ${fmtDate(effective)}` : kind === "downgrade" ? `Change to ${planName(tier, interval)} on ${fmtDate(effective)}` : `Switch to monthly billing from ${fmtDate(effective)}`}
-      spec={kind === "downgrade" ? "M-04" : "M-04b"}
+      title={cancelled ? `Resume and switch to ${word} billing from ${fmtDate(effective)}` : `Switch to ${word} billing from ${fmtDate(effective)}`}
+      spec="M-04b"
       width="max-w-xl"
       footer={
         <>
           <button className="btn-secondary" onClick={close}>
             Keep {planName(sub.tier, sub.interval)}
           </button>
-          <button className="btn-primary" disabled={!understood || (cancelled && !renewConsent)} onClick={() => onConfirm(cancelled ? renewText : undefined)}>
+          <button className="btn-primary" disabled={cancelled && !renewConsent} onClick={() => onConfirm(cancelled ? renewText : undefined)}>
             {cancelled ? "Resume and schedule change" : "Schedule change"}
           </button>
         </>
@@ -471,42 +434,22 @@ function DowngradeModal({ tier, interval, seats, kind, close, onConfirm }: { tie
         <p>
           You keep <strong className="text-ink">{planName(sub.tier, sub.interval)}</strong> until <strong className="text-ink">{fmtDate(effective)}</strong>. From then you are on <strong className="text-ink">{planName(tier, interval)}</strong> at {fmtMoney(newAmount)} per {intervalWord(interval)}.
         </p>
-        {kind === "downgrade" && (
-          <div className="rounded-xl border border-[#f2b9a5] bg-[#fff4ee] p-4">
-            <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <IconWarning size={16} className="text-danger" /> What changes on {fmtDate(effective)} <Spec id="UX-07" />
-            </p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-2">
-              {losses.map((l) => (
-                <li key={l}>{l}</li>
-              ))}
-            </ul>
-            {isBusinessDown && (
-              <button
-                className="mt-3 flex items-center gap-2 text-sm font-semibold text-maroon underline-offset-2 hover:underline"
-                onClick={() => flows.open({ type: "handover" })}
-              >
-                <IconHandover size={16} /> Hand over {teamDocs > 0 ? `${teamDocs} team document${teamDocs === 1 ? "" : "s"}` : "team documents"} first <Spec id="UX-08" />
-              </button>
-            )}
+        {interval === "annual" && (
+          <div className="rounded-lg bg-success-tint px-3 py-2 text-sm text-success">
+            Save {ANNUAL_SAVINGS[tier].pct}% compared to monthly billing. <Spec id="UX-21" />
           </div>
         )}
         <div className="rounded-lg bg-page px-3 py-2 text-xs text-ink-2">
           <Spec id="UX-06" className="float-right" />
           <div className="flex justify-between"><span>Today</span><strong className="text-ink">Nothing charged</strong></div>
-          <div className="flex justify-between"><span>From {fmtDate(effective)}</span><strong className="text-ink">{fmtMoney(newAmount)} / {intervalWord(interval)}</strong></div>
-          <div className="flex justify-between"><span>Refund for the current period</span><strong className="text-ink">None (you keep using it)</strong></div>
+          <div className="flex justify-between"><span>On {fmtDate(effective)}</span><strong className="text-ink">{fmtMoney(newAmount)} / {intervalWord(interval)}</strong></div>
+          <div className="flex justify-between"><span>Current period</span><strong className="text-ink">Used in full, no refund</strong></div>
         </div>
         <p className="text-xs text-muted">You can undo this any time before {fmtDate(effective)} from the banner or Plan settings. <Spec id="UX-09" /></p>
-        {kind === "downgrade" && (
-          <Checkbox checked={understood} onChange={setUnderstood} id="dg-ack">
-            I understand what changes on {fmtDate(effective)}.
-          </Checkbox>
-        )}
         {cancelled && (
           <>
             <p className="rounded-lg bg-info-tint px-3 py-2 text-xs text-info">Your plan is cancelled. Scheduling this change keeps your subscription and removes the cancellation.</p>
-            <Checkbox checked={renewConsent} onChange={setRenewConsent} id="dg-renew-consent">
+            <Checkbox checked={renewConsent} onChange={setRenewConsent} id="iv-renew-consent">
               {renewText}
             </Checkbox>
           </>
@@ -637,31 +580,18 @@ function ResumeModal({ close }: { close: () => void }) {
   );
 }
 
-/* M-08 */
+/* M-08: the card is entered on the provider's page (Stripe / Doku), checked with a small reversed charge, then saved (R-90, R-91). */
 function AddCardModal({ close, makeDefault: makeDefaultIn }: { close: () => void; makeDefault?: boolean }) {
   const { s, api } = useAppState();
   const sub = activeSubscription(s);
   const hasDefault = !!s.card;
-  const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
   const [makeDefault, setMakeDefault] = useState(makeDefaultIn ?? !hasDefault);
-  const [stage, setStage] = useState<"form" | "3ds" | "saving">("form");
+  const [hosted, setHosted] = useState(false);
   const pastDue = sub?.status === "past_due";
   const pendingAmount = sub ? planPrice(sub.scheduledChange?.tier ?? sub.tier, sub.scheduledChange?.interval ?? sub.interval, sub.scheduledChange?.seats ?? sub.pendingSeats ?? sub.seats) : 0;
   const backups = s.backupCards ?? [];
-
-  function save(card: Card) {
-    setStage("saving");
-    setTimeout(() => {
-      api.addCard(card, makeDefault);
-      close();
-    }, 500);
-  }
-
-  function submit() {
-    const card = cardFromForm(form, s.now);
-    if (card.behavior === "requires_action") setStage("3ds");
-    else save(card);
-  }
+  const provider = cardProvider(isIndonesia(s));
+  const providerName = provider.name === "stripe" ? "Stripe" : "Doku";
 
   const title = !hasDefault ? "Add a payment method" : makeDefault ? "Replace your default card" : "Add a backup card";
 
@@ -677,22 +607,22 @@ function AddCardModal({ close, makeDefault: makeDefaultIn }: { close: () => void
             <button className="btn-secondary" onClick={close}>
               Cancel
             </button>
-            <button className="btn-primary" disabled={!cardFormValid(form) || stage !== "form"} onClick={submit}>
-              {stage === "saving" ? "Saving…" : "Save card"}
+            <button className="btn-primary" onClick={() => setHosted(true)}>
+              Continue to {providerName} <IconArrowRight size={16} />
             </button>
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-sm">
-            We will not charge you now.{" "}
+            {sub ? `This card is used for your next renewal on ${fmtDate(sub.currentPeriodEnd)}${makeDefault || !hasDefault ? "" : " if your default card is declined"}.` : "The card is saved for your next payment."}{" "}
             {pastDue && (
               <span>
-                Because a payment of <strong className="text-ink">{fmtMoney(pendingAmount)}</strong> is pending, we will retry it right away after saving. <Spec id="R-22" />
+                Because a payment of <strong className="text-ink">{fmtMoney(pendingAmount)}</strong> is pending, we retry it right away after saving. <Spec id="R-22" />
               </span>
             )}
           </p>
-          <CardForm value={form} onChange={setForm} nowIso={s.now} />
+          <HostedCardNote action="save" />
           {hasDefault && (
             <label className="flex items-start gap-2 rounded-lg border border-line-2 px-3 py-2.5 text-sm">
               <input type="checkbox" className="mt-0.5 accent-brand" checked={makeDefault} onChange={(e) => setMakeDefault(e.target.checked)} />
@@ -706,17 +636,17 @@ function AddCardModal({ close, makeDefault: makeDefaultIn }: { close: () => void
               </span>
             </label>
           )}
-          <p className="text-xs text-muted">
-            Your bank may ask you to confirm the new card (no charge). <Spec id="UX-14" />
-          </p>
         </div>
       </Modal>
-      {stage === "3ds" && (
-        <ThreeDSModal
-          amount={`${fmtMoney(0)} (card verification)`}
-          last4={cardFromForm(form, s.now).last4}
-          onApprove={() => save({ ...cardFromForm(form, s.now), behavior: "success" })}
-          onCancel={() => setStage("form")}
+      {hosted && (
+        <HostedCardPage
+          purpose="save"
+          description={makeDefault || !hasDefault ? "Save a card for Privy" : "Save a backup card for Privy"}
+          onCancel={() => setHosted(false)}
+          onComplete={(card) => {
+            api.addCard(card, makeDefault);
+            close();
+          }}
         />
       )}
     </>
@@ -940,18 +870,6 @@ function SeatsModal({ close }: { close: () => void }) {
 }
 
 /* Indonesia: pay an existing renewal bill (M-11 → M-12 → M-13) */
-function PayBillFlow({ billId, close }: { billId: string; close: () => void }) {
-  const { s } = useAppState();
-  const bill = (s.bills ?? []).find((b) => b.id === billId);
-  const [stage, setStage] = useState<"checkout" | "detail">(bill?.status === "pending_payment" ? "detail" : "checkout");
-  if (!bill) {
-    close();
-    return null;
-  }
-  if (stage === "detail") return <PaymentDetailDrawer billId={billId} close={close} />;
-  return <OneTimeCheckoutDrawer tier={bill.tier} interval={bill.interval} seats={bill.seats} bill={bill} close={close} onPaymentCreated={() => setStage("detail")} />;
-}
-
 /* N-06 link: on-session confirmation of the same PaymentIntent */
 function AuthenticateFlow({ close }: { close: () => void }) {
   const { s, api } = useAppState();
@@ -975,31 +893,24 @@ function AuthenticateFlow({ close }: { close: () => void }) {
 }
 
 /* Migration opt-in (UX-24, R-42). Also the only self-serve upgrade path for prepaid users (R-43). */
-function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade, promo }: { close: () => void; tier?: PaidTier; interval?: Interval; fromUpgrade?: boolean; promo?: boolean }) {
+function OptInModal({ close, tier: tierIn, interval: intervalIn, promo }: { close: () => void; tier?: PaidTier; interval?: Interval; promo?: boolean }) {
   const { s, api } = useAppState();
   // Frozen at mount: the prepaid record is cleared once the subscription is created.
   const [pe] = useState(() => prepaidEnd(s)!);
   const [prepaidTier] = useState(() => s.prepaid!.tier);
-  const [periodCount] = useState(() => s.prepaid!.periods.length);
   const tier = tierIn ?? prepaidTier;
   const [interval, setInterval] = useState<Interval>(intervalIn ?? (promo ? "monthly" : "annual"));
   const [seats, setSeats] = useState(1);
-  const [form, setForm] = useState<CardFormValue>({ number: "", exp: "", cvc: "", name: "" });
   const [consent, setConsent] = useState(false);
-  const [stage, setStage] = useState<"form" | "3ds" | "done">("form");
+  const [stage, setStage] = useState<"form" | "hosted" | "done">("form");
   const amount = planPrice(tier, interval, seats);
   const text = `I agree that Privy will charge ${fmtMoney(amount)} to my card every ${intervalWord(interval)} starting ${fmtDate(pe)} until I cancel. I can cancel any time before then and nothing will be charged.`;
-  const upgrading = tier !== prepaidTier;
+  const providerName = cardProvider(isIndonesia(s)).name === "stripe" ? "Stripe" : "Doku";
 
   function finish(card: Card) {
     if (promo) api.subscribeAfterPromo(card, text, tier, interval, seats);
     else api.optIn(card, text, interval, tier, seats);
     setStage("done");
-  }
-  function submit() {
-    const card = cardFromForm(form, s.now);
-    if (card.behavior === "requires_action") setStage("3ds");
-    else finish(card);
   }
 
   if (stage === "done") {
@@ -1010,7 +921,7 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade, pr
           <p>
             Your {promo ? "free period" : "current plan"} runs until <strong className="text-ink">{fmtDate(pe)}</strong>. On that date we charge {fmtMoney(amount)} for {planName(tier, interval)} and your plan continues without interruption.
           </p>
-          <p className="mt-2 text-xs text-muted">Nothing was charged today. Cancel any time before {fmtDate(pe)} from Plan settings.</p>
+          <p className="mt-2 text-xs text-muted">The card check of {fmtMoney(cardCheckAmount(s))} was reversed. Cancel any time before {fmtDate(pe)} from Plan settings.</p>
         </div>
       </Modal>
     );
@@ -1021,27 +932,21 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade, pr
       <Modal
         open
         onClose={close}
-        title={promo ? `Start ${TIER_LABEL[tier]} when your free period ends` : upgrading ? `Upgrade to ${TIER_LABEL[tier]} when your current plan ends` : "Turn on auto-renewal"}
-        spec={promo ? "M-21" : upgrading ? "R-43" : "UX-24"}
+        title={promo ? `Start ${TIER_LABEL[tier]} when your free period ends` : "Turn on auto-renewal"}
+        spec={promo ? "M-21" : "UX-24"}
         width="max-w-xl"
         footer={
           <>
             <button className="btn-secondary" onClick={close}>
               Not now
             </button>
-            <button className="btn-primary" disabled={!cardFormValid(form) || !consent} onClick={submit}>
-              {promo ? `Start on ${fmtDate(pe)}` : upgrading ? `Schedule upgrade for ${fmtDate(pe)}` : "Turn on auto-renewal"}
+            <button className="btn-primary" disabled={!consent} onClick={() => setStage("hosted")}>
+              Continue to {providerName} <IconArrowRight size={16} />
             </button>
           </>
         }
       >
         <div className="space-y-4">
-          {upgrading && fromUpgrade && !promo && (
-            <p className="flex items-start gap-2 rounded-lg bg-info-tint px-3 py-2 text-xs text-info">
-              <IconInfo size={16} className="mt-0.5 shrink-0" />
-              You bought {periodCount} prepaid period{periodCount > 1 ? "s" : ""} under the old model, so upgrading now would forfeit all of them. Self-serve offers the scheduled option only; contact helpdesk@privy.id if you need Pro sooner.
-            </p>
-          )}
           <p>
             {promo ? (
               <>
@@ -1069,15 +974,15 @@ function OptInModal({ close, tier: tierIn, interval: intervalIn, fromUpgrade, pr
               <button className="btn-secondary !px-2 !py-1" onClick={() => setSeats(Math.min(50, seats + 1))}><IconPlus size={14} /></button>
             </div>
           )}
-          <CardForm value={form} onChange={setForm} nowIso={s.now} compact />
+          <HostedCardNote action="save" />
           <Checkbox checked={consent} onChange={setConsent} id="optin-consent">
             {text}
           </Checkbox>
           <p className="text-xs text-muted">If you do nothing, your account moves to Free on {fmtDate(pe)}.</p>
         </div>
       </Modal>
-      {stage === "3ds" && (
-        <ThreeDSModal amount={`${fmtMoney(0)} (card verification)`} last4={cardFromForm(form, s.now).last4} onApprove={() => finish({ ...cardFromForm(form, s.now), behavior: "success" })} onCancel={() => setStage("form")} />
+      {stage === "hosted" && (
+        <HostedCardPage purpose="save" description={`${planName(tier, interval)} from ${fmtDate(pe)}`} onCancel={() => setStage("form")} onComplete={finish} />
       )}
     </>
   );
@@ -1707,7 +1612,7 @@ function PaywallModal({ close }: { close: () => void }) {
               <button type="button" onClick={() => upgrade("personal")} className="flex w-full items-center justify-between rounded-xl border border-line-2 px-4 py-3 hover:border-ink hover:bg-page">
                 <span>
                   <span className="block text-[15px] font-medium text-ink">Personal</span>
-                  <span className="block text-xs text-muted">50 envelopes a month · {personalPrice}/month · {region.taxNote}</span>
+                  <span className="block text-xs text-muted">Unlimited envelopes · {personalPrice}/month · {region.taxNote}</span>
                 </span>
                 <IconArrowRight size={16} className="text-ink-2" />
               </button>
@@ -1715,9 +1620,9 @@ function PaywallModal({ close }: { close: () => void }) {
             <button type="button" onClick={() => upgrade("business")} className="flex w-full items-center justify-between rounded-xl border border-maroon bg-brand-tint/20 px-4 py-3 hover:bg-brand-tint/40">
               <span>
                 <span className="flex items-center gap-2 text-[15px] font-medium text-ink">
-                  Pro <span className="chip bg-maroon text-white">Unlimited</span>
+                  Pro <span className="chip bg-maroon text-white">Team</span>
                 </span>
-                <span className="block text-xs text-muted">Unlimited envelopes + a team workspace · {businessPrice}/seat/month · {region.taxNote}</span>
+                <span className="block text-xs text-muted">Unlimited envelopes, a dedicated workspace and team members · {businessPrice}/seat/month · {region.taxNote}</span>
               </span>
               <IconArrowRight size={16} className="text-ink-2" />
             </button>
@@ -1983,9 +1888,4 @@ export function WelcomeBusinessModal() {
   );
 }
 
-function ordinal(n: number): string {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
-}
 

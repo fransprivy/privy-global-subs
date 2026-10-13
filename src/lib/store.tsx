@@ -67,6 +67,7 @@ interface StoreApi {
   payBill: (billId: string, method: PaymentMethodKind, bank?: VaBank, card?: Card, saveCard?: boolean) => void;
   cancelPayment: (billId: string) => void;
   confirmPayment: (billId: string) => void;
+  buyOneTimeByCard: (input: { tier: PaidTier; interval: Interval; seats: number; card: Card; saveCard?: boolean; workspaceName?: string }) => void;
   convertToAutoRenew: (card: Card, consentText: string) => void;
   confirmAuthentication: () => void;
   optIn: (card: Card, consentText: string, interval: Interval, tier?: PaidTier, seats?: number) => void;
@@ -227,6 +228,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       payBill: (billId, method, bank, card, saveCard) => update((s) => E.payBill(s, billId, method, bank, card, saveCard)),
       cancelPayment: (billId) => update((s) => E.cancelPayment(s, billId)),
       confirmPayment: (billId) => update((s) => E.confirmPayment(s, billId)),
+      buyOneTimeByCard: (input) => update((s) => E.buyOneTimeByCard(s, input)),
       convertToAutoRenew: (card, consentText) => update((s) => E.convertToAutoRenew(s, card, consentText)),
       confirmAuthentication: () => update((s) => E.confirmAuthentication(s)),
       optIn: (card, consentText, interval, tier, seats) => update((s) => E.optInAutoRenew(s, card, consentText, interval, tier, seats)),

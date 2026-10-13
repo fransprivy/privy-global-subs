@@ -104,7 +104,7 @@ export const VA_BANKS: { code: VaBank; name: string; prefix: string }[] = [
 ];
 /** How long a generated Payment ID stays payable (hours). */
 export const PAYMENT_ID_VALID_HOURS = 2;
-/** Days before a one-time plan expires that the bill is issued. */
+/** Manual payment (Indonesia): reminder days before the plan ends. No bill is issued and nothing can be paid early. */
 export const BILL_LEAD_DAYS = 7;
 export const BILL_REMINDER_DAYS = [3, 1];
 
@@ -126,6 +126,9 @@ export interface PlanCardSpec {
   tier: Tier;
   blurb: string;
   bestFor: string;
+  /** The one thing this plan adds over the plan below it. Shown first on the card. */
+  mainBenefit: string;
+  mainBenefitDetail: string;
   highlights: { label: string; value?: string }[];
   everythingIn?: Tier;
   recommended?: boolean;
@@ -136,6 +139,8 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     tier: "free",
     blurb: "No card needed, no expiry",
     bestFor: "Individuals who want to experience signing digitally.",
+    mainBenefit: "5 envelopes a month",
+    mainBenefitDetail: "Sign and send for free, no card needed.",
     highlights: [
       { label: "Envelopes sent", value: "5 / month" },
       { label: "Reusable templates", value: "5" },
@@ -147,9 +152,11 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     tier: "personal",
     blurb: "Billed monthly",
     bestFor: "Individuals signing documents on a regular basis.",
+    mainBenefit: "Unlimited envelopes",
+    mainBenefitDetail: "Send as many envelopes as you need, every month.",
     everythingIn: "free",
     highlights: [
-      { label: "Envelopes sent", value: "50 / month" },
+      { label: "Envelopes sent", value: "Unlimited" },
       { label: "Reusable templates", value: "Unlimited" },
       { label: "Reports & analytics" },
     ],
@@ -158,10 +165,12 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     tier: "business",
     blurb: "Billed monthly per seat",
     bestFor: "Small to medium size businesses that sign together.",
+    mainBenefit: "Dedicated workspace and team members",
+    mainBenefitDetail: "A shared workspace for your company, with members you invite.",
     everythingIn: "personal",
     recommended: true,
     highlights: [
-      { label: "Envelopes sent", value: "Unlimited" },
+      { label: "Dedicated team workspace" },
       { label: "Team members", value: "1 to Unlimited" },
       { label: "Workflow automation" },
       { label: "Custom branding" },
@@ -171,6 +180,8 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     tier: "enterprise",
     blurb: "Priced on your team size and needs",
     bestFor: "Companies with compliance needs.",
+    mainBenefit: "Custom limits, SSO and API",
+    mainBenefitDetail: "Contract, onboarding and controls for larger companies.",
     everythingIn: "business",
     highlights: [
       { label: "Envelopes sent", value: "Custom" },
@@ -200,9 +211,9 @@ export const COMPARE_TABLE: CompareGroup[] = [
     rows: [
       {
         label: "Envelopes sent",
-        values: ["5 / month", "50 / month", "Unlimited", "Custom"],
-        annualValues: ["5 / month", "600 / year", "Unlimited", "Custom"],
+        values: ["5 / month", "Unlimited", "Unlimited", "Custom"],
       },
+      { label: "Dedicated team workspace", values: [false, false, true, true] },
       { label: "Team members", values: ["1", "1", "1 to Unlimited", "Custom"] },
       { label: "Reusable templates", values: ["5", "Unlimited", "Unlimited", "Yes"] },
       { label: "Saved contacts", values: ["Unlimited", "Unlimited", "Unlimited", "Unlimited"] },
@@ -263,7 +274,7 @@ export const BUSINESS_ONLY_FEATURES = [
 
 export const ENVELOPE_LIMIT: Record<Tier, number | null> = {
   free: 5,
-  personal: 50,
+  personal: null,
   business: null,
   enterprise: null,
 };

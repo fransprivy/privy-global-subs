@@ -14,7 +14,7 @@ import { IconCheck, IconChevronLeft, IconChevronRight, IconClose, IconMail, Icon
 const TAG_STYLE: Record<string, string> = {
   "Start here": "bg-brand text-white",
   Upgrade: "bg-info-tint text-info",
-  Downgrade: "bg-success-tint text-success",
+  "Billing switch": "bg-success-tint text-success",
   Failure: "bg-danger-tint text-danger",
   Migration: "bg-gold-tint text-gold",
   Cancel: "bg-[#eeeeee] text-ink-2",
@@ -35,7 +35,9 @@ export function useNextEvent() {
     if (sub.nextRetryAt && daysBetween(today, sub.nextRetryAt) > 0) return { label: `next retry (${fmtDate(sub.nextRetryAt)})`, iso: sub.nextRetryAt };
     return { label: `end of grace (${fmtDate(sub.graceEndsAt)})`, iso: sub.graceEndsAt };
   }
-  if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "scheduled change" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
+  if (sub) return { label: `${sub.status === "cancel_scheduled" ? "plan end" : sub.scheduledChange ? "billing switch" : "next renewal"} (${fmtDate(sub.currentPeriodEnd)})`, iso: sub.currentPeriodEnd };
+  if (pe && s.prepaid?.source === "one_time") return { label: `plan end (${fmtDate(pe)})`, iso: pe };
+  if (pe && s.prepaid?.source === "redeem") return { label: `end of free period (${fmtDate(pe)})`, iso: pe };
   if (pe) return { label: `end of prepaid time (${fmtDate(pe)})`, iso: pe };
   return null;
 }

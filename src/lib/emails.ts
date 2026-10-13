@@ -37,6 +37,8 @@ export interface EmailCtx {
   proratedAmount: string;
   backupLast4: string;
   defaultLast4: string;
+  /** Amount charged and reversed to check a new card (A$1 / Rp 10,000). */
+  checkAmount: string;
 }
 
 export interface EmailTemplateMeta {
@@ -56,7 +58,7 @@ export interface RenderedEmail {
 
 export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-01", name: "Subscription active", trigger: "First successful charge", timing: "Immediately", legal: "Yes: post-purchase acknowledgment (FTC / CA / UK)", group: "Lifecycle" },
-  { id: "N-02", name: "Upgrade confirmed", trigger: "Upgrade or interval change completed", timing: "Immediately", legal: "Recommended", group: "Changes" },
+  { id: "N-02", name: "Upgrade confirmed", trigger: "Upgrade completed (starts today, unused days of the old plan forfeited)", timing: "Immediately", legal: "Recommended", group: "Changes" },
   { id: "N-03", name: "Renewal receipt", trigger: "Renewal charge succeeded", timing: "Immediately", legal: "Receipt expected", group: "Renewal" },
   { id: "N-04", name: "Renewal reminder", trigger: "Annual: T-30 and T-7. Monthly: every 6th renewal at T-7", timing: "Before the charge", legal: "Yes: CA ARL 15-45 days for annual; UK DMCC every 6 months", group: "Renewal" },
   { id: "N-05", name: "Payment failed", trigger: "Renewal charge failed (Day 0)", timing: "Immediately", legal: "Recommended", group: "Dunning" },
@@ -65,31 +67,31 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-08", name: "Final warning", trigger: "Day 12 of grace", timing: "2 days before grace ends", legal: "Recommended", group: "Dunning" },
   { id: "N-09", name: "Moved to Free", trigger: "Grace ended, downgraded to Free (Day 14)", timing: "At downgrade", legal: "Recommended", group: "Dunning" },
   { id: "N-10", name: "Card expiring", trigger: "Card expires before next renewal, not auto-updated", timing: "T-7", legal: "No", group: "Renewal" },
-  { id: "N-11", name: "Change scheduled", trigger: "Downgrade or scheduled upgrade requested", timing: "Immediately", legal: "Recommended", group: "Changes" },
-  { id: "N-11b", name: "Change reminder", trigger: "Scheduled change or cancellation takes effect in 3 days (UX-10)", timing: "T-3", legal: "Recommended", group: "Changes" },
-  { id: "N-12", name: "Change applied", trigger: "Scheduled change took effect", timing: "At effective date", legal: "Receipt expected", group: "Changes" },
+  { id: "N-11", name: "Billing switch scheduled", trigger: "Monthly to yearly or yearly to monthly switch requested (applies at period end)", timing: "Immediately", legal: "Recommended", group: "Changes" },
+  { id: "N-11b", name: "Change reminder", trigger: "Billing switch or cancellation takes effect in 3 days (UX-10)", timing: "T-3", legal: "Recommended", group: "Changes" },
+  { id: "N-12", name: "Billing switch applied", trigger: "Scheduled monthly / yearly switch took effect", timing: "At effective date", legal: "Receipt expected", group: "Changes" },
   { id: "N-13", name: "Cancellation confirmed", trigger: "Cancellation scheduled", timing: "Immediately", legal: "Yes: CA / UK confirmation of cancellation", group: "Lifecycle" },
   { id: "N-14", name: "Plan ended", trigger: "Cancelled subscription reached period end", timing: "At period end", legal: "Recommended", group: "Lifecycle" },
   { id: "N-15", name: "Welcome back", trigger: "Subscription resumed", timing: "Immediately", legal: "Recommended", group: "Lifecycle" },
-  { id: "N-16", name: "Workspace read-only (members)", trigger: "Pro plan ending: workspace becomes read-only for members", timing: "At scheduling and at effective date", legal: "No", group: "Changes" },
+  { id: "N-16", name: "Workspace read-only (members)", trigger: "Pro plan cancelled, not renewed or ended: workspace becomes read-only for members", timing: "At cancellation and at the end date", legal: "No", group: "Changes" },
   { id: "N-17", name: "Turn on auto-renewal", trigger: "Migration opt-in series for prepaid users", timing: "Go-live, T-30, T-7, T-1", legal: "Yes: terms change notice", group: "Migration" },
   { id: "N-18", name: "Payment dispute", trigger: "Chargeback opened", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-19", name: "Price change notice", trigger: "Price change", timing: "30 days before first renewal at new price", legal: "Yes", group: "Other" },
   { id: "N-20", name: "Prepaid plan ended", trigger: "Prepaid time ended without opt-in", timing: "At prepaid end", legal: "No", group: "Migration" },
-  { id: "N-21", name: "Payment method updated", trigger: "Default card replaced or changed", timing: "Immediately", legal: "No (added: UX-19)", group: "Other" },
+  { id: "N-21", name: "Payment method updated", trigger: "Default card added, replaced or changed (card checked with A$1 / Rp 10,000, reversed)", timing: "Immediately", legal: "Recommended: explains the check charge", group: "Other" },
   { id: "N-22", name: "Seats changed", trigger: "Pro seats added (prorated charge) or reduction scheduled", timing: "Immediately", legal: "Receipt expected when charged", group: "Changes" },
   { id: "N-23", name: "Backup card charged", trigger: "Default card declined, a backup card succeeded", timing: "Immediately after the charge", legal: "Recommended (transparency on which card was used)", group: "Renewal" },
   { id: "N-24", name: "Backup card added", trigger: "A backup card was saved", timing: "Immediately", legal: "No", group: "Other" },
-  { id: "N-30", name: "Bill issued (one-time plan)", trigger: "Indonesia one-time plan, 7 days before expiry", timing: "T-7", legal: "Recommended", group: "Indonesia" },
-  { id: "N-30b", name: "Bill reminder", trigger: "Bill still unpaid", timing: "T-3 and T-1", legal: "Recommended", group: "Indonesia" },
-  { id: "N-31", name: "Plan expired (one-time)", trigger: "Bill not paid by the expiry date", timing: "At expiry, no grace", legal: "Recommended", group: "Indonesia" },
+  { id: "N-30", name: "Plan ending reminder (manual payment)", trigger: "Indonesia manual payment plan, 7 days before it ends. No bill, nothing to pay yet", timing: "T-7", legal: "Recommended", group: "Indonesia" },
+  { id: "N-30b", name: "Plan ending reminder (follow-up)", trigger: "Manual payment plan still ending, auto-renewal not on", timing: "T-3 and T-1", legal: "Recommended", group: "Indonesia" },
+  { id: "N-31", name: "Plan ended (manual payment)", trigger: "Manual payment plan reached its end date", timing: "At the end date, no grace", legal: "Recommended", group: "Indonesia" },
   { id: "N-35", name: "You are the new owner: set up payment", trigger: "Ownership transferred to this member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
   { id: "N-36", name: "Ownership transferred (old owner)", trigger: "Owner handed the workspace to a member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
   { id: "N-40", name: "Voucher redeemed", trigger: "Voucher code claimed successfully", timing: "Immediately", legal: "Recommended: states the end date and that nothing is charged", group: "Vouchers" },
   { id: "N-41", name: "Free period ended", trigger: "Voucher benefit reached its end date", timing: "At the end date", legal: "Recommended", group: "Vouchers" },
   { id: "N-32", name: "Payment received (one-time)", trigger: "Payment ID paid via QRIS / VA / card", timing: "Immediately", legal: "Receipt expected", group: "Indonesia" },
   { id: "N-33", name: "Payment ID expired", trigger: "Payment ID not paid within 2 hours", timing: "At expiry of the Payment ID", legal: "No", group: "Indonesia" },
-  { id: "N-34", name: "Auto-renewal turned on", trigger: "One-time user converted to auto-renewal", timing: "Immediately", legal: "Yes: express consent to recurring charge", group: "Indonesia" },
+  { id: "N-34", name: "Auto-renewal turned on", trigger: "Manual payment user turned on auto-renewal (any time)", timing: "Immediately", legal: "Yes: express consent to recurring charge", group: "Indonesia" },
 ];
 
 const planPage = "/settings/billing";
@@ -110,10 +112,10 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       return {
         subject: `You are now on Privy ${c.newPlanName}`,
         body: [
-          `We charged ${c.newAmount} today. Your ${c.newPlanName} plan runs until ${c.newEnd} and renews automatically.`,
-          c.rolledDays > 0
-            ? `Your ${c.rolledDays} remaining days from the monthly plan were added, so the new end date includes them.`
-            : `Your previous ${c.oldPlanName} plan ended today and, as you acknowledged, its remaining time (${c.forfeitDays} days) is not refunded or credited.`,
+          `We charged ${c.newAmount} today. Your ${c.newPlanName} plan starts today, runs until ${c.newEnd} and renews automatically.`,
+          c.forfeitDays > 0
+            ? `Your previous ${c.oldPlanName} plan ended today and, as you acknowledged, its remaining ${c.forfeitDays} day${c.forfeitDays === 1 ? "" : "s"} are not refunded or credited.`
+            : `Your previous ${c.oldPlanName} plan ended today.`,
         ],
         cta: { label: "View plan settings", href: planPage },
       };
@@ -205,31 +207,35 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       };
     case "N-11":
       return {
-        subject: `Your plan change is scheduled for ${c.effectiveDate}`,
+        subject: `Your billing switches to ${c.intervalWord === "year" ? "yearly" : "monthly"} on ${c.effectiveDate}`,
         body: [
-          `You keep ${c.oldPlanName} until ${c.effectiveDate}. From then you are on ${c.newPlanName} at ${c.newAmount} per ${c.intervalWord}.`,
-          `Changed your mind? Keep your current plan with one click.`,
+          `You stay on ${c.oldPlanName} until ${c.effectiveDate}. From then you are on ${c.newPlanName}, ${c.newAmount} per ${c.intervalWord}, charged to card ending ${c.last4}. Nothing is charged today.`,
+          `Changed your mind? Keep your current billing with one click before ${c.effectiveDate}.`,
         ],
-        cta: { label: "Keep my current plan", href: `${planPage}?action=undo` },
+        cta: { label: "Keep my current billing", href: `${planPage}?action=undo` },
       };
     case "N-11b":
+      if (c.newPlanName === "Free") {
+        return {
+          subject: `Reminder: your Privy ${c.oldPlanName} ends in 3 days`,
+          body: [
+            `On ${c.effectiveDate} your ${c.oldPlanName} plan ends and your account moves to Free (5 envelopes a month). Your documents are safe.`,
+            c.isBusiness && c.memberCount > 0
+              ? `${c.workspaceName} becomes read-only for you and ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"} on that date. Hand over team documents before then if they should stay with you.`
+              : `Changed your mind? Resume with one click before then.`,
+          ],
+          cta: { label: "Resume subscription", href: `${planPage}?action=resume` },
+        };
+      }
       return {
-        subject: `Reminder: your plan changes in 3 days`,
-        body: [
-          `On ${c.effectiveDate} your plan changes from ${c.oldPlanName} to ${c.newPlanName}.`,
-          c.isBusiness && c.memberCount > 0
-            ? `${c.workspaceName} becomes read-only for you and ${c.memberCount} team members on that date. Hand over team documents before then if they should stay with you.`
-            : `Nothing to do if that is what you want.`,
-        ],
-        cta: { label: "Keep my current plan", href: `${planPage}?action=undo` },
+        subject: `Reminder: your billing changes in 3 days`,
+        body: [`On ${c.effectiveDate} you move from ${c.oldPlanName} to ${c.newPlanName} and we charge ${c.newAmount} to card ending ${c.last4}.`, `Nothing to do if that is what you want.`],
+        cta: { label: "Keep my current billing", href: `${planPage}?action=undo` },
       };
     case "N-12":
       return {
         subject: `You are now on Privy ${c.newPlanName}`,
-        body: [
-          `Your scheduled change took effect. We charged ${c.newAmount} for the new period; next renewal ${c.nextDate}.`,
-          c.isBusiness ? `${c.workspaceName} is now read-only for your team: envelopes can be viewed and downloaded. Reactivate Pro any time.` : `Your envelope allowance is now the ${c.newPlanName} allowance.`,
-        ],
+        body: [`Your billing switch took effect. We charged ${c.newAmount} for the new period; next renewal ${c.nextDate}. Your plan and its features stay the same.`],
         cta: { label: "View plan settings", href: planPage },
       };
     case "N-13":
@@ -296,7 +302,10 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-21":
       return {
         subject: `Your payment method was updated`,
-        body: [`Card ending ${c.last4} is now the card we charge first for ${c.planName}. If you did not make this change, contact helpdesk@privy.id right away.`],
+        body: [
+          `Card ending ${c.last4} is now the card we charge for ${c.planName}, starting with your next renewal.`,
+          c.checkAmount ? `To confirm the card we charged ${c.checkAmount} and reversed it right away. It may show as pending for a few days and is never kept.` : `If you did not make this change, contact helpdesk@privy.id right away.`,
+        ],
       };
     case "N-22":
       return c.seatsDelta > 0
@@ -327,24 +336,24 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
       };
     case "N-30":
       return {
-        subject: `Your Privy ${c.planName} expires on ${c.prepaidEnd}: pay to continue`,
+        subject: `Your Privy ${c.planName} ends on ${c.prepaidEnd}`,
         body: [
-          `Your one-time ${c.planName} plan ends on ${c.prepaidEnd}. To keep it for the next period (until ${c.newEnd}) pay ${c.amount} before then. Nothing is charged automatically.`,
-          `Pay with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card. If you do nothing, your account moves to Free on ${c.prepaidEnd} with your documents kept${c.isBusiness && c.memberCount > 0 ? `, and ${c.workspaceName} becomes read-only for your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"}` : ""}.`,
-          `Prefer not to think about it? Turn on auto-renewal with a card and we handle it each period.`,
+          `Your ${c.planName} plan is paid until ${c.prepaidEnd}. It does not renew automatically, and there is nothing to pay yet.`,
+          `After ${c.prepaidEnd} your account moves to Free (5 envelopes a month) with your documents kept${c.isBusiness && c.memberCount > 0 ? `, and ${c.workspaceName} becomes read-only for your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"}` : ""}. To continue, buy a new period on or after ${c.prepaidEnd}; it starts on the day you pay.`,
+          `Prefer no gap? Turn on auto-renewal with a card now and we charge it on ${c.prepaidEnd}.`,
         ],
-        cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
+        cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" },
       };
     case "N-30b":
       return {
-        subject: `${c.daysLeft} day${c.daysLeft === 1 ? "" : "s"} left: your Privy ${c.planName} expires on ${c.prepaidEnd}`,
-        body: [`Your bill of ${c.amount} is still unpaid. Pay before ${c.prepaidEnd} to continue without interruption; there is no grace period for one-time plans.${c.isBusiness && c.memberCount > 0 ? ` Your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"} in ${c.workspaceName} lose signing access on that date.` : ""}`],
-        cta: { label: "Pay the bill", href: "/settings/billing?action=pay-bill" },
+        subject: `${c.daysLeft} day${c.daysLeft === 1 ? "" : "s"} left: your Privy ${c.planName} ends on ${c.prepaidEnd}`,
+        body: [`Nothing to pay yet. On ${c.prepaidEnd} your account moves to Free; there is no grace period for manual payment.${c.isBusiness && c.memberCount > 0 ? ` Your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"} in ${c.workspaceName} lose signing access on that date.` : ""} Buy again after it ends, or turn on auto-renewal now to continue without a gap.`],
+        cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" },
       };
     case "N-31":
       return {
-        subject: `Your Privy ${c.tierLabel} plan has expired`,
-        body: [`The bill was not paid by ${c.prepaidEnd}, so your account is now on the Free plan. Your documents are safe. You can buy a new period any time.${c.isBusiness && c.memberCount > 0 ? ` ${c.workspaceName} is read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"} until you reactivate.` : ""}`],
+        subject: `Your Privy ${c.tierLabel} plan has ended`,
+        body: [`Your ${c.tierLabel} plan ended on ${c.prepaidEnd}, so your account is now on the Free plan with 5 envelopes a month. Your documents are safe. Buy a new plan any time; it starts on the day you pay.${c.isBusiness && c.memberCount > 0 ? ` ${c.workspaceName} is read-only for you and your ${c.memberCount} member${c.memberCount === 1 ? "" : "s"} until you buy Pro again.` : ""}`],
         cta: { label: "Buy a plan", href: "/plans" },
       };
     case "N-40":
@@ -373,8 +382,8 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
         subject: `You now own ${c.workspaceName} on Privy: add a payment method before ${c.nextDate}`,
         body: [
           `${c.name} transferred ownership of ${c.workspaceName} to you. The current paid period runs until ${c.nextDate}; nothing changes for members until then.`,
-          `To keep the workspace running after ${c.nextDate}, add a card (or, in Indonesia, pay the next bill). If no payment method is set up by then, the workspace becomes read-only until it is reactivated.`,
-          `As the owner, your Individual workspace now gets unlimited envelopes, included with Pro.`,
+          `To keep the workspace running after ${c.nextDate}, add a card (or, on manual payment in Indonesia, buy the next period after that date). If no payment method is set up by then, the workspace becomes read-only until it is reactivated.`,
+          `As the owner, your Individual workspace now gets Personal, included with Pro.`,
         ],
         cta: { label: "Set up payment", href: "/settings/billing" },
       };
@@ -390,7 +399,7 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-32":
       return {
         subject: `Payment received: ${c.planName} is active until ${c.newEnd}`,
-        body: [`We received ${c.amount} via ${c.last4}. Your ${c.planName} plan is active until ${c.newEnd}. Invoice ${c.invoiceNumber} is attached.`, `This plan does not renew automatically. We will send you a bill 7 days before it expires.`],
+        body: [`We received ${c.amount} via ${c.last4}. Your ${c.planName} plan is active until ${c.newEnd}. Invoice ${c.invoiceNumber} is attached.`, `This plan does not renew automatically. We remind you 7 days before it ends; you can buy the next period after that date, or turn on auto-renewal any time.`],
         cta: { label: "View invoice", href: "/settings/billing" },
       };
     case "N-33":
@@ -402,13 +411,16 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-34":
       return {
         subject: `Auto-renewal is on for your Privy ${c.planName}`,
-        body: [`From ${c.nextDate} we will charge ${c.amount} to card ending ${c.last4} every ${c.intervalWord} until you cancel. No more manual bills.`, `You can cancel any time from Plan settings and keep access until the end of the paid period.`],
+        body: [
+          `Your current plan runs until ${c.nextDate} as paid. From ${c.nextDate} we charge ${c.amount} to card ending ${c.last4} every ${c.intervalWord} until you cancel. No more manual payments.`,
+          `To confirm the card we charged ${c.checkAmount} and reversed it right away. You can cancel any time from Plan settings and keep access until the end of the paid period.`,
+        ],
         cta: { label: "View plan settings", href: "/settings/billing" },
       };
     case "N-24":
       return {
         subject: `Backup card added`,
-        body: [`Card ending ${c.backupLast4} was saved as a backup. We only charge it if your default card is declined. If you did not make this change, contact helpdesk@privy.id right away.`],
+        body: [`Card ending ${c.backupLast4} was saved as a backup. We only charge it if your default card is declined. To confirm the card we charged ${c.checkAmount} and reversed it right away. If you did not make this change, contact helpdesk@privy.id right away.`],
       };
     default:
       return { subject: id, body: [] };
