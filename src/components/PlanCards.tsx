@@ -2,7 +2,7 @@
 
 import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
 import { activeSubscription, classifyChange, currentTier, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
-import { fmtDate, fmtMoney, fmtMoneyShort } from "@/lib/format";
+import { fmtDate, fmtMoneyShort } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
 import { useFlows } from "./flows";
