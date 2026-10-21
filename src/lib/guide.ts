@@ -43,8 +43,8 @@ export const GUIDES: Record<string, Guide> = {
       {
         id: "free-paywall",
         title: "Hit the Free limit and see the paywall",
-        do: "Home → 'Send an envelope' → pick a file (the drop zone) 4 times (4 sends left), then open it once more. Or use 'Use up envelope quota' in the Prototype panel.",
-        expect: "The counter drops to '0 sends left' in red and 'Upgrade plan' appears. The upload screen now opens with the paywall on top: 'Your plan does not go this far', the reset date, Personal and Pro options, 'Not now' / 'Upgrade plan'. Picking a plan goes straight to checkout.",
+        do: "Home → 'Send an envelope' → pick a file (the drop zone) 4 times (4 envelopes left), then open it once more. Or use 'Use up envelope quota' in the Prototype panel.",
+        expect: "The counter drops to '0 envelopes left' in red and 'Upgrade plan' appears. The upload screen now opens with the paywall on top: 'Your plan does not go this far', the reset date, Personal and Pro options, 'Not now' / 'Upgrade plan'. Picking a plan goes straight to checkout.",
         href: "/home",
         refs: ["M-17", "UX-27", "UX-28"],
         check: (s) => s.usage.envelopesSent >= 5,
@@ -455,7 +455,7 @@ export const GUIDES: Record<string, Guide> = {
       {
         id: "bmf-1",
         title: "Compare the two workspaces",
-        do: "Home shows 'Frans · Individual · Free' (4 sends left). Avatar menu → 'Hartono Legal Partners'.",
+        do: "Home shows 'Frans · Individual · Free' (4 envelopes left). Avatar menu → 'Hartono Legal Partners'.",
         expect: "Kenny's Pro workspace: unlimited envelopes, its own task list, no Upgrade button in the top bar. Billing says 'managed by Kenny Hartono' with no actions.",
         href: "/home",
         refs: ["R-71", "R-76"],
@@ -498,7 +498,7 @@ export const GUIDES: Record<string, Guide> = {
         id: "bmp-1",
         title: "Check the limit in the Individual workspace",
         do: "Home / Billing in 'Frans · Individual'.",
-        expect: "Personal Monthly: 47 sent this month, unlimited. Team members: '1 (you), invite people in a Pro workspace'. Membership of Kenny's Pro and PT Privy (Demo) Enterprise does not change your own plan.",
+        expect: "Personal Monthly: Envelopes, 47 used this month, unlimited. Team members: '1 (you), invite people in a Pro workspace'. Membership of Kenny's Pro and PT Privy (Demo) Enterprise does not change your own plan.",
         href: "/settings/billing",
         refs: ["R-71"],
         check: (_s, p) => p === "/settings/billing",

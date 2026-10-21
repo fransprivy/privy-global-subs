@@ -41,6 +41,7 @@ import { IconArrowRight, IconCheckCircle, IconHandover, IconInfo, IconMinus, Ico
 import { CardBrandBadge, cardProvider, HostedCardNote, HostedCardPage, Radio, ThreeDSModal } from "./payments";
 import { ConvertModal, OneTimeCheckoutDrawer, PaymentDetailDrawer, PurchaseTypeModal } from "./onetime";
 import { Checkbox, Modal, Spec } from "./ui";
+import { EnvelopeInfo } from "./EnvelopeInfo";
 
 export type Flow =
   | { type: "plan"; tier: PaidTier; interval: Interval; seats?: number }
@@ -1301,6 +1302,11 @@ function UploadDocumentScreen({ close }: { close: () => void }) {
           {blocked && <p className="mt-3 text-xs font-medium text-danger">You have used every envelope your plan includes this month.</p>}
           {!blocked && left !== null && <p className="mt-3 text-xs text-muted">{left} of {ws.envelopeLimit} envelopes left this month</p>}
         </button>
+        {left !== null && (
+          <p className="mt-2 flex items-center justify-center gap-1 text-xs text-muted">
+            Sending, signing or approving an envelope uses 1 of your monthly envelopes. <EnvelopeInfo label="Learn more" />
+          </p>
+        )}
         <div className="mt-10 border-t border-line pt-8">
           <p className="text-[17px] font-medium text-ink">Start from a template</p>
           <div className="mt-6 flex flex-col items-center text-center">
@@ -1615,7 +1621,10 @@ function PaywallModal({ close }: { close: () => void }) {
         <div className="px-6 pb-6 pt-5 text-center">
           <h2 className="font-display text-[19px] font-semibold text-ink">Your plan does not go this far</h2>
           <p className="mt-2 text-sm text-ink-2">
-            You have used all <strong className="text-ink">{limit} envelopes</strong> your {planLabel} plan includes this month. Your counter resets on <strong className="text-ink">{fmtDate(reset)}</strong>. Upgrade to send more today.
+            You have used all <strong className="text-ink">{limit} envelopes</strong> your {planLabel} plan includes this month. Your envelopes reset on <strong className="text-ink">{fmtDate(reset)}</strong>. Upgrade to send more today.
+          </p>
+          <p className="mt-1">
+            <EnvelopeInfo label="What uses an envelope?" />
           </p>
           <div className="mt-4 space-y-2 text-left">
             {plan === "free" && (

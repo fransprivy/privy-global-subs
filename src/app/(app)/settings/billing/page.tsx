@@ -14,6 +14,7 @@ import { activeSubscription, brandLabel, cardExpiresBefore, convertEligible, cur
 import { fmtDate, fmtDateTime, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Bill, Invoice } from "@/lib/types";
+import { EnvelopeInfo } from "@/components/EnvelopeInfo";
 
 export default function BillingPage() {
   return (
@@ -62,8 +63,9 @@ function Billing() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <UsageTile
           icon={<IconReceipt size={20} />}
-          title="Envelopes sent"
-          value={ws.envelopeLimit === null ? `${ws.usage.envelopesSent} sent this month · unlimited${perk ? " (included with Pro)" : ""}` : `${ws.usage.envelopesSent} of ${ws.envelopeLimit} used this month`}
+          title="Envelopes"
+          info={<EnvelopeInfo unlimited={ws.envelopeLimit === null} />}
+          value={ws.envelopeLimit === null ? `${ws.usage.envelopesSent} used this month · unlimited${perk ? " (included with Pro)" : ""}` : `${ws.usage.envelopesSent} of ${ws.envelopeLimit} used this month · resets on the 1st`}
         />
         <UsageTile icon={<IconHistory size={20} />} title="Reusable templates" value={limitText(ws.usage.templates, ws.kind === "individual" && !perk ? TEMPLATE_LIMIT[tier] : null, "used", "saved")} />
         <UsageTile icon={<IconUsers size={20} />} title="Saved contacts" value={`${ws.usage.contacts} saved · unlimited`} />
@@ -500,12 +502,15 @@ function SubscriptionCard() {
   );
 }
 
-function UsageTile({ icon, title, value }: { icon: React.ReactNode; title: string; value: string }) {
+function UsageTile({ icon, title, value, info }: { icon: React.ReactNode; title: string; value: string; info?: React.ReactNode }) {
   return (
     <div className="card flex items-start gap-3 px-5 py-5">
       <span className="text-ink-2">{icon}</span>
       <div>
-        <p className="text-[17px] font-medium text-ink">{title}</p>
+        <p className="flex items-center gap-1.5 text-[17px] font-medium text-ink">
+          {title}
+          {info}
+        </p>
         <p className="text-[15px] text-muted">{value}</p>
       </div>
     </div>

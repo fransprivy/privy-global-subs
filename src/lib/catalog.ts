@@ -134,7 +134,7 @@ export interface PlanCardSpec {
   tier: Tier;
   blurb: string;
   bestFor: string;
-  highlights: { label: string; value?: string }[];
+  highlights: { label: string; value?: string; info?: boolean }[];
   everythingIn?: Tier;
   recommended?: boolean;
 }
@@ -145,7 +145,7 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     blurb: "No cost",
     bestFor: "For individuals who want to experience signing digitally",
     highlights: [
-      { label: "Envelopes sent", value: "5 / month" },
+      { label: "Envelopes", value: "5 / month", info: true },
       { label: "Reusable templates", value: "5" },
       { label: "Storage", value: "10 GB" },
     ],
@@ -156,7 +156,7 @@ export const PLAN_CARDS: PlanCardSpec[] = [
     bestFor: "For individuals who send and sign often",
     everythingIn: "free",
     highlights: [
-      { label: "Envelopes sent", value: "Unlimited" },
+      { label: "Envelopes", value: "Unlimited", info: true },
       { label: "Reusable templates", value: "Unlimited" },
       { label: "Storage", value: "Unlimited" },
     ],
@@ -197,6 +197,8 @@ export interface CompareRow {
   label: string;
   values: [CellValue, CellValue, CellValue, CellValue]; // free, personal, business, enterprise
   annualValues?: [CellValue, CellValue, CellValue, CellValue];
+  /** Show the "What uses an envelope" info button next to the label. */
+  info?: boolean;
 }
 
 export interface CompareGroup {
@@ -212,7 +214,7 @@ export const COMPARE_TABLE: CompareGroup[] = [
   {
     group: "Usage limits",
     rows: [
-      { label: "Envelopes sent", values: ["5 / month", "Unlimited", "Unlimited", "Unlimited"] },
+      { label: "Envelopes", values: ["5 / month", "Unlimited", "Unlimited", "Unlimited"], info: true },
       { label: "Reusable templates", values: ["5", "Unlimited", "Unlimited", "Unlimited"] },
       { label: "Storage", values: ["10 GB", "Unlimited", "Unlimited", "Unlimited"] },
       { label: "Team members", values: ["1", "1", "1 to unlimited", "Custom"] },

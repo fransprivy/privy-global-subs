@@ -7,6 +7,7 @@ import { Spec, StatusPill } from "@/components/ui";
 import { handoverOptions, workspaceView } from "@/lib/engine";
 import { fmtDate } from "@/lib/format";
 import { useAppState } from "@/lib/store";
+import { EnvelopeInfo } from "@/components/EnvelopeInfo";
 
 /** Envelope list per workspace. Expired workspaces are read-only: view, download and hand over only (R-72). */
 export default function EnvelopesPage() {
@@ -34,6 +35,7 @@ export default function EnvelopesPage() {
           <p className="mt-1 text-sm text-muted">
             {ws.name} · {ws.kind === "individual" ? "Individual" : ws.kind === "business" ? "Pro" : "Enterprise"}
             {ws.envelopeLimit === null ? "" : ` · ${Math.max(0, ws.envelopeLimit - ws.usage.envelopesSent)} of ${ws.envelopeLimit} envelopes left this month`}
+            {ws.envelopeLimit !== null && <EnvelopeInfo className="ml-1.5" size={14} />}
           </p>
         </div>
         <div className="flex gap-2">

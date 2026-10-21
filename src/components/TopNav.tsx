@@ -8,6 +8,7 @@ import { PrivyLogo } from "./Logo";
 import { IconBell, IconChat, IconEnvelope, IconGear, IconHome, IconSparkle, IconTemplates } from "./Icons";
 import { Spec } from "./ui";
 import { WorkspaceMenu } from "./WorkspaceMenu";
+import { EnvelopeInfo } from "./EnvelopeInfo";
 
 const NAV = [
   { href: "/home", label: "Home", icon: IconHome },
@@ -61,8 +62,9 @@ export function TopNav() {
           {ws.readOnly ? (
             <span className="whitespace-nowrap text-[15px] text-ink-2">Read-only</span>
           ) : left !== null ? (
-            <span className={`whitespace-nowrap text-[15px] ${left === 0 ? "font-semibold text-danger" : "text-ink-2"}`} title={`${ws.usage.envelopesSent} of ${limit} envelopes used this month`}>
-              {left} send{left === 1 ? "" : "s"} left
+            <span className={`flex items-center gap-1 whitespace-nowrap text-[15px] ${left === 0 ? "font-semibold text-danger" : "text-ink-2"}`} title={`${ws.usage.envelopesSent} of ${limit} envelopes used this month`}>
+              {left} envelope{left === 1 ? "" : "s"} left
+              <EnvelopeInfo />
             </span>
           ) : null}
           {cta && (

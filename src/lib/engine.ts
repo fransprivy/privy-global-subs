@@ -545,12 +545,10 @@ export function sendEnvelope(s: AppState): AppState | null {
 export function useUpQuota(s: AppState): AppState {
   const ws = workspaceView(s, "individual");
   if (ws.envelopeLimit === null) return toast(s, "This workspace has unlimited envelopes.", "info");
-  return toast({ ...s, usage: { ...s.usage, envelopesSent: ws.envelopeLimit } }, "Quota used up: 0 sends left.", "warn");
+  return toast({ ...s, usage: { ...s.usage, envelopesSent: ws.envelopeLimit } }, "Quota used up: 0 envelopes left.", "warn");
 }
-/** Date the monthly quota resets: the plan's renewal date, or the 1st of next month for Free. */
+/** Envelopes reset on the 1st of every month (only Free has a monthly quota; paid plans are unlimited). */
 export function quotaResetDate(s: AppState): string {
-  const sub = activeSubscription(s);
-  if (sub && sub.interval === "monthly") return sub.currentPeriodEnd;
   const d = new Date(s.now);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString();
 }

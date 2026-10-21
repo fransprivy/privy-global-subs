@@ -13,6 +13,7 @@ import { activeSubscription, currentInterval, currentPlanName, currentTier, isOn
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval } from "@/lib/types";
+import { EnvelopeInfo } from "@/components/EnvelopeInfo";
 
 export default function ChangePlanPage() {
   const { s } = useAppState();
@@ -70,7 +71,9 @@ export default function ChangePlanPage() {
             </div>
             <div className="space-y-2 text-[15px]">
               <div className="flex justify-between border-b border-line pb-2">
-                <span className="text-ink">Envelopes sent</span>
+                <span className="flex items-center gap-1.5 text-ink">
+                  Envelopes <EnvelopeInfo unlimited={ENVELOPE_LIMIT[tier] === null} />
+                </span>
                 <span className="font-semibold text-ink">{ENVELOPE_LIMIT[tier] === null ? "Unlimited" : `${ENVELOPE_LIMIT[tier]} / month`}</span>
               </div>
               <div className="flex justify-between border-b border-line pb-2">

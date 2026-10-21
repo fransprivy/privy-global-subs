@@ -8,6 +8,7 @@ import type { Interval, PaidTier, Tier } from "@/lib/types";
 import { useFlows } from "./flows";
 import { IconBadge, IconCheck, IconCheckCircle } from "./Icons";
 import { Spec } from "./ui";
+import { EnvelopeInfo } from "./EnvelopeInfo";
 
 type Cta = { label: string; kind: "current" | "action" | "sales" | "cancel" | "scheduled" | "disabled" | "switch" };
 
@@ -199,7 +200,10 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
               </div>
             ) : (
               <div key={h.label} className="flex items-center justify-between gap-2 border-b border-line pb-2 last:border-0">
-                <span className="min-w-0 text-ink-2">{h.label}</span>
+                <span className="flex min-w-0 items-center gap-1 text-ink-2">
+                  {h.label}
+                  {h.info && <EnvelopeInfo unlimited={h.value === "Unlimited"} size={14} />}
+                </span>
                 {h.value ? <span className="shrink-0 font-semibold text-ink">{h.value}</span> : <IconCheck size={16} className="shrink-0 text-success" />}
               </div>
             )
@@ -271,7 +275,12 @@ function GroupRows({ group, rows, interval }: { group: string; rows: (typeof COM
         const values = interval === "annual" && r.annualValues ? r.annualValues : r.values;
         return (
           <tr key={r.label} className="border-t border-line">
-            <td className="py-3.5 pr-4 text-ink">{r.label}</td>
+            <td className="py-3.5 pr-4 text-ink">
+              <span className="inline-flex items-center gap-1.5">
+                {r.label}
+                {r.info && <EnvelopeInfo size={15} />}
+              </span>
+            </td>
             {values.map((v, i) => (
               <td key={i} className={`px-2 py-3.5 text-center ${i === 2 ? "bg-[#fdf3f3]/60" : ""}`}>
                 <Cell v={v} />
