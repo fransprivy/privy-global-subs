@@ -427,7 +427,7 @@ function SubscriptionCard() {
     status = <StatusPill tone={left <= 3 ? "warn" : "neutral"}>Manual payment · ends {fmtDate(pe)}</StatusPill>;
     footer = (
       <span className="text-ink-2">
-        Paid until <strong className="text-ink">{fmtDate(pe)}</strong> ({last?.paidWithLabel ?? "manual payment"}). No automatic renewal and nothing to pay before then: we remind you {BILL_LEAD_DAYS}, 3 and 1 day before. After it ends your account moves to Free and you can buy again any time. <Spec id="R-63" />
+        Paid until <strong className="text-ink">{fmtDate(pe)}</strong> ({last?.paidWithLabel ?? "manual payment"}). No automatic renewal and nothing to pay before then: we remind you {BILL_LEAD_DAYS} days before. After it ends your account moves to Free and you can buy again any time. <Spec id="R-63" />
       </span>
     );
     if (bill && bill.status === "pending_payment") {

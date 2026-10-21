@@ -6,6 +6,13 @@ A clickable, fully working prototype of Privy Sign's subscription experience for
 - **Simulated date:** 10 September 2026. Time moves only when you advance it from the Prototype panel.
 - **Stripe is simulated** with the official Stripe test card numbers (see below).
 
+## Prices and currency (revised 21 Oct 2026)
+
+- Region decides the currency: Indonesia shows IDR, Australia AUD, every other country USD (Settings › Workspace preferences, or the Prototype panel).
+- New prices apply to existing subscribers from their next renewal, with no grandfathering.
+- Cancelling during the 14-day grace period ends the plan at once (no access for the rest of the grace period); email N-14 says so.
+- Indonesia manual payment sends one reminder only, at D-7 (N-30). N-30b is retired.
+
 ## Plan rules (revised 13 Oct 2026)
 
 The engineering summary lives in the doc "Subscription Changes, October 2026".
@@ -14,8 +21,8 @@ The engineering summary lives in the doc "Subscription Changes, October 2026".
 - **Upgrade (Personal to Pro) starts today** for every billing type (Global, Indonesia auto-renewal, Indonesia manual payment). The current plan ends today and its unused days are not refunded or credited; the user acknowledges this. There is no scheduled upgrade.
 - **No downgrade from Pro to Personal.** The user cancels Pro (it runs to the end of the paid period, then the workspace turns read-only) and buys Personal afterwards. Cancel is available from Personal and Pro.
 - **Monthly and yearly switches** are scheduled for the end of the current period (nothing charged now, no stacking, end date unchanged) and can be undone until then.
-- **Indonesia manual payment:** no bill and no early payment. Reminders at D-7, D-3 and D-1 only. On the end date the account moves to Free at once (Pro workspace read-only); the user can buy again any time and the new period starts on the day of payment. Auto-renewal can be turned on at any time by any manual user.
-- **Card details are entered on the provider's page** (Stripe for Global, Doku for Indonesia), never on a Privy page. Saving a card charges A$1 / Rp 10,000 to check it and reverses it at once; the saved card is used on the renewal date. The payment method can be changed at any time.
+- **Indonesia manual payment:** no bill and no early payment. One reminder at D-7. On the end date the account moves to Free at once (Pro workspace read-only); the user can buy again any time and the new period starts on the day of payment. Auto-renewal can be turned on at any time by any manual user.
+- **Card details are entered on the provider's page** (Stripe for Global, Doku for Indonesia), never on a Privy page. Saving a card charges US$1 / A$1 / Rp 10,000 to check it and reverses it at once; the saved card is used on the renewal date. The payment method can be changed at any time.
 
 ## Voucher codes (added 5 Oct 2026, revised 6 Oct 2026)
 
@@ -53,7 +60,7 @@ The avatar menu (top right) is the workspace switcher from production: current w
 - **Roles (R-82)**: owner sets admins. Admins invite and remove members, change seats and manage payment methods. Only the owner can change or cancel the plan, transfer ownership, set admins, hand over everything or delete the workspace. Scenario "Personal subscriber who is also a member" shows the admin view in Kenny's workspace.
 - **Prototype helpers** (requirement tags, test-card hints, support panel, explanatory notes) are hidden unless "Show prototype helpers" is on in the Prototype panel, so screens read as production copy.
 - **Ownership transfer (M-18, R-81)**: Team members → Make owner. The old owner's card is detached at once (subscription ended, nothing charged again, no refund), the paid period keeps the workspace active, and the new owner must add a payment method before it ends or the workspace becomes read-only. The old owner loses the Individual perk immediately and stays as a member; emails N-35 (new owner) and N-36 (old owner).
-- **Member warnings (B-10)**: members of a workspace whose owner's plan is ending, or whose new owner has not set up payment, see a banner with the date. Indonesian manual payment reminders for Pro mention how many members would lose signing access (banner B-06, emails N-30, N-30b, N-31).
+- **Member warnings (B-10)**: members of a workspace whose owner's plan is ending, or whose new owner has not set up payment, see a banner with the date. Indonesian manual payment reminders for Pro mention how many members would lose signing access (banner B-06, emails N-30, N-31).
 - **Top bar**: the envelope quota ("x sends left") is shown only on Free (every paid plan is unlimited); "Upgrade plan" appears only for Free users (UX-27).
 - **Expired, not deleted.** When a Pro plan ends (cancel, grace end, end of a manual payment period) the workspace becomes **read-only**: owner and members can view and download envelopes but not sign, send or upload (banner B-09, R-72). The owner's Individual workspace drops back to Free. The owner can **hand over** every envelope to their Individual workspace (R-79) and **reactivate** with a normal Pro checkout, which starts a new billing date (R-75). Expired Enterprise workspaces behave the same with a contact-sales note.
 - Engine: `workspaceView`, `allWorkspaces`, `switchWorkspace`, `individualPlan`, `workspaceStatus`, `expireWorkspace`, `activateWorkspace`, `handoverDocuments`, `inviteMember`, `removeMember`. UI: `WorkspaceMenu.tsx`, envelopes page, per-workspace billing (`PerkCard`, `MemberPlanCard`, `TeamMembers`). Scenarios: **Member of someone else's Pro**, **Personal subscriber who is also a member**, **Expired Pro workspace (owner)**, **Enterprise member**; Pro owner now starts in its Pro workspace with the perk visible in Individual.
@@ -64,7 +71,7 @@ The workspace has a **Region** (Settings → Workspace preferences, also in the 
 
 - **Auto-renewal** (card only): identical to Global, including the 14-day grace, retries and backup cards.
 - **Manual payment** (QRIS, card, or virtual account BRI / BCA / CIMB / Mandiri / Permata): QRIS and virtual account create a **Payment ID** valid for 2 hours and show the payment detail (M-12: VA number, QR code, amount, guidance). "Confirm payment → Refresh" (or "Simulate payment received" in the Prototype panel) is the gateway webhook. Card payments happen on Doku's page and activate the plan at once; the card can be saved for faster payments. A new period always starts on the day of payment.
-- **Reminders, not bills:** 7, 3 and 1 day before a manual plan ends the user gets a reminder (emails N-30 and N-30b, banner B-06) with nothing to pay. On the end date the account moves to Free at once (**no grace period**; Pro: workspace read-only), email N-31, banner B-08. The user buys again whenever they want.
+- **Reminders, not bills:** 7 days before a manual plan ends the user gets one reminder (email N-30, banner B-06) with nothing to pay. On the end date the account moves to Free at once (**no grace period**; Pro: workspace read-only), email N-31, banner B-08. The user buys again whenever they want.
 - **Turn on auto-renewal** (M-14): offered to every manual user at any time (banner, subscription card, payment methods). The card is saved on Doku's page with a Rp 10,000 check that is reversed; the subscription's first charge is the current end date (email N-34).
 - **Changing region** is always allowed; Personal and Pro plans are shared across regions, so nothing expires or is charged on a switch (history entry "Region changed"). Future bills and charges use the new currency.
 - Engine: `setRegion`, `startOneTimePurchase`, `buyOneTimeByCard`, `cancelPayment`, `confirmPayment`, `convertToAutoRenew`, `expireOneTimePlan`; helpers `isIndonesia`, `isOneTimeUser`, `openBill`, `pendingPayment`, `convertEligible`. Catalog: `REGIONS`, `PRICE_TABLES`, `VA_BANKS`, `BILL_LEAD_DAYS`. UI: `src/components/onetime.tsx`, `settings/workspace-preferences`. Scenarios: **Indonesia: Free user**, **manual payment, ends in 5 days**, **Pro paid by QRIS, ends in 2 days**, **auto-renewal on a card**. Requirement IDs R-60 to R-66.
@@ -131,7 +138,7 @@ Card numbers are typed on the simulated Stripe (Global) or Doku (Indonesia) page
 
 ## What is implemented (mapping to the spec)
 
-- **Plan facts** (AUD, after tax): Free 5 envelopes/mo, 5 templates; Personal A$7.49/mo or A$79/yr, unlimited envelopes; Pro A$38.50 per seat/mo or A$396 per seat/yr, unlimited envelopes, dedicated team workspace and members; Enterprise custom. Full "What changes between plans" table. (`src/lib/catalog.ts`)
+- **Plan facts** (doc "Pricing Page Update: Plans, Prices and Feature Comparison"): Free 5 envelopes/mo, 5 templates, 10 GB storage; Personal unlimited envelopes, templates and storage, US$9.99 / US$95.90 or A$11.99 / A$115.10; Pro per seat US$27.50 / US$264 or A$33 / A$316.80, team members, groups, scheduled reminders, expiry, branding; Enterprise custom. Yearly is 20% below monthly. Indonesia (IDR) unchanged. Comparison table grouped as in the doc, with "Included in every plan" last. Storage is copy only (not tracked or enforced). (`src/lib/catalog.ts`)
 - **Plan change rules**: same plan disabled; Monthly↔Yearly at the end of the period with undo; Personal→Pro starts today (forfeit, full price, acknowledgment); no Pro→Personal (cancel Pro, buy Personal after); cancel at period end, two clicks, skippable survey, one-click resume.
 - **Billing engine** (`src/lib/engine.ts`): anniversary billing with month-end clamp (31 Jan → 28 Feb → 31 Mar), hourly-sweep semantics run once per simulated day, invoices created at charge time, soft/hard decline classes, 14-day grace with retries Day 3/7/14 and immediate retry on card update, SCA fallback (N-06 → confirm), recovery keeps the anchor, end of grace → Free with documents kept and Pro workspace closure, monthly/yearly switches charged at the effective date, consent records, payment-attempt ledger, change history.
 - **Notifications**: emails N-01…N-24 and N-30…N-34 (`src/lib/emails.ts`), banners B-01…B-09 (`src/components/Banners.tsx`), modals M-01…M-15 (`src/components/flows.tsx`, `CheckoutDrawer.tsx`, `onetime.tsx`).

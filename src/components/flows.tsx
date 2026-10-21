@@ -464,7 +464,9 @@ function CancelModal({ close }: { close: () => void }) {
   const { s, api } = useAppState();
   const flows = useFlows();
   const sub = activeSubscription(s)!;
-  const accessUntil = sub.status === "past_due" && sub.graceEndsAt ? sub.graceEndsAt : sub.currentPeriodEnd;
+  // In the grace period a cancel ends the plan at once (no access for the rest of the grace period).
+  const pastDue = sub.status === "past_due";
+  const accessUntil = pastDue ? s.now : sub.currentPeriodEnd;
   const [reason, setReason] = useState<string | null>(null);
   const [step, setStep] = useState<"confirm" | "survey">("confirm");
   const REASONS = ["Too expensive", "Not signing enough documents", "Missing a feature I need", "Switching to another tool", "Just trying it out", "Other"];
@@ -488,7 +490,7 @@ function CancelModal({ close }: { close: () => void }) {
               Skip and cancel
             </button>
             <button className="btn-primary" onClick={doCancel}>
-              Cancel subscription
+              {pastDue ? "Cancel and end today" : "Cancel subscription"}
             </button>
           </>
         }
@@ -517,18 +519,24 @@ function CancelModal({ close }: { close: () => void }) {
             Keep my plan
           </button>
           <button className="btn-primary" onClick={() => setStep("survey")}>
-            Cancel subscription
+            {pastDue ? "Cancel and end today" : "Cancel subscription"}
           </button>
         </>
       }
     >
       <div className="space-y-3">
-        <p>
-          You keep full access until <strong className="text-ink">{fmtDate(accessUntil)}</strong>. No further charges. Your documents stay in your account.
-        </p>
+        {pastDue ? (
+          <p>
+            Your last renewal payment failed. If you cancel now, your plan <strong className="text-ink">ends today</strong>: you lose access at once, not at the end of the grace period. The unpaid renewal is voided and nothing more is charged. Your documents stay in your account.
+          </p>
+        ) : (
+          <p>
+            You keep full access until <strong className="text-ink">{fmtDate(accessUntil)}</strong>. No further charges. Your documents stay in your account.
+          </p>
+        )}
         {isBusiness && (
           <div className="rounded-xl border border-[#f2b9a5] bg-[#fff4ee] p-4 text-sm">
-            <p className="font-semibold text-ink">Your workspace {s.workspace.name} becomes read-only on {fmtDate(accessUntil)}</p>
+            <p className="font-semibold text-ink">Your workspace {s.workspace.name} becomes read-only {pastDue ? "today" : `on ${fmtDate(accessUntil)}`}</p>
             <p className="mt-1 text-ink-2">
               You and {Math.max(0, s.workspace.members.length - 1)} team members can still view, download and hand over envelopes. Reactivate Pro any time to sign and send again.
             </p>
@@ -537,7 +545,9 @@ function CancelModal({ close }: { close: () => void }) {
             </button>
           </div>
         )}
-        <p className="text-xs text-muted">Changed your mind? Resume any time before {fmtDate(accessUntil)}. <Spec id="UX-11" /></p>
+        <p className="text-xs text-muted">
+          {pastDue ? "To keep your plan instead, update your payment method and we retry the renewal right away." : `Changed your mind? Resume any time before ${fmtDate(accessUntil)}.`} <Spec id="UX-11" />
+        </p>
       </div>
     </Modal>
   );

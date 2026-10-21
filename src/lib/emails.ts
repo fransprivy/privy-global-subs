@@ -39,6 +39,8 @@ export interface EmailCtx {
   defaultLast4: string;
   /** Amount charged and reversed to check a new card (A$1 / Rp 10,000). */
   checkAmount: string;
+  /** N-14: the plan was cancelled during the grace period and ended at once. */
+  endedEarly: boolean;
 }
 
 export interface EmailTemplateMeta {
@@ -71,7 +73,7 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-11b", name: "Change reminder", trigger: "Billing switch or cancellation takes effect in 3 days (UX-10)", timing: "T-3", legal: "Recommended", group: "Changes" },
   { id: "N-12", name: "Billing switch applied", trigger: "Scheduled monthly / yearly switch took effect", timing: "At effective date", legal: "Receipt expected", group: "Changes" },
   { id: "N-13", name: "Cancellation confirmed", trigger: "Cancellation scheduled", timing: "Immediately", legal: "Yes: CA / UK confirmation of cancellation", group: "Lifecycle" },
-  { id: "N-14", name: "Plan ended", trigger: "Cancelled subscription reached period end", timing: "At period end", legal: "Recommended", group: "Lifecycle" },
+  { id: "N-14", name: "Plan ended", trigger: "Cancelled subscription reached period end, or cancelled during the grace period (ends at once)", timing: "At period end, or immediately", legal: "Recommended", group: "Lifecycle" },
   { id: "N-15", name: "Welcome back", trigger: "Subscription resumed", timing: "Immediately", legal: "Recommended", group: "Lifecycle" },
   { id: "N-16", name: "Workspace read-only (members)", trigger: "Pro plan cancelled, not renewed or ended: workspace becomes read-only for members", timing: "At cancellation and at the end date", legal: "No", group: "Changes" },
   { id: "N-17", name: "Turn on auto-renewal", trigger: "Migration opt-in series for prepaid users", timing: "Go-live, T-30, T-7, T-1", legal: "Yes: terms change notice", group: "Migration" },
@@ -83,7 +85,6 @@ export const EMAIL_META: EmailTemplateMeta[] = [
   { id: "N-23", name: "Backup card charged", trigger: "Default card declined, a backup card succeeded", timing: "Immediately after the charge", legal: "Recommended (transparency on which card was used)", group: "Renewal" },
   { id: "N-24", name: "Backup card added", trigger: "A backup card was saved", timing: "Immediately", legal: "No", group: "Other" },
   { id: "N-30", name: "Plan ending reminder (manual payment)", trigger: "Indonesia manual payment plan, 7 days before it ends. No bill, nothing to pay yet", timing: "T-7", legal: "Recommended", group: "Indonesia" },
-  { id: "N-30b", name: "Plan ending reminder (follow-up)", trigger: "Manual payment plan still ending, auto-renewal not on", timing: "T-3 and T-1", legal: "Recommended", group: "Indonesia" },
   { id: "N-31", name: "Plan ended (manual payment)", trigger: "Manual payment plan reached its end date", timing: "At the end date, no grace", legal: "Recommended", group: "Indonesia" },
   { id: "N-35", name: "You are the new owner: set up payment", trigger: "Ownership transferred to this member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
   { id: "N-36", name: "Ownership transferred (old owner)", trigger: "Owner handed the workspace to a member", timing: "Immediately", legal: "Recommended", group: "Workspaces" },
@@ -250,7 +251,9 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
     case "N-14":
       return {
         subject: `Your Privy ${c.planName} has ended`,
-        body: [`You are now on the Free plan. Your documents are safe.`],
+        body: c.endedEarly
+          ? [`You cancelled while a renewal payment was overdue, so your plan ended today and the unpaid invoice was voided. You are now on the Free plan. Your documents are safe.`]
+          : [`You are now on the Free plan. Your documents are safe.`],
         cta: { label: "See plans", href: "/plans" },
       };
     case "N-15":
@@ -342,12 +345,6 @@ export function renderEmail(id: string, c: EmailCtx): RenderedEmail {
           `After ${c.prepaidEnd} your account moves to Free (5 envelopes a month) with your documents kept${c.isBusiness && c.memberCount > 0 ? `, and ${c.workspaceName} becomes read-only for your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"}` : ""}. To continue, buy a new period on or after ${c.prepaidEnd}; it starts on the day you pay.`,
           `Prefer no gap? Turn on auto-renewal with a card now and we charge it on ${c.prepaidEnd}.`,
         ],
-        cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" },
-      };
-    case "N-30b":
-      return {
-        subject: `${c.daysLeft} day${c.daysLeft === 1 ? "" : "s"} left: your Privy ${c.planName} ends on ${c.prepaidEnd}`,
-        body: [`Nothing to pay yet. On ${c.prepaidEnd} your account moves to Free; there is no grace period for manual payment.${c.isBusiness && c.memberCount > 0 ? ` Your ${c.memberCount} team member${c.memberCount === 1 ? "" : "s"} in ${c.workspaceName} lose signing access on that date.` : ""} Buy again after it ends, or turn on auto-renewal now to continue without a gap.`],
         cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" },
       };
     case "N-31":

@@ -2,7 +2,7 @@
 
 import { ANNUAL_SAVINGS, COMPARE_TABLE, PLAN_CARDS, TIER_LABEL, regionMeta, type CellValue } from "@/lib/catalog";
 import { activeSubscription, classifyChange, currentTier, isOneTimeUser, isPrepaidUser, isPromoUser, promoInfo, planPrice, prepaidEnd, regionOf, workspaceStatus, workspaceView } from "@/lib/engine";
-import { fmtDate, fmtMoney } from "@/lib/format";
+import { fmtDate, fmtMoney, fmtMoneyShort } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 import type { Interval, PaidTier, Tier } from "@/lib/types";
 import { useFlows } from "./flows";
@@ -156,7 +156,7 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
           ? tier === "business"
             ? `Billed monthly per seat · ${taxNote}`
             : `Billed monthly · ${taxNote}`
-          : `Billed yearly ${fmtMoney(yearly!)}${tier === "business" ? " per seat" : ""} · ${taxNote}`;
+          : `Billed yearly ${fmtMoneyShort(yearly!)}${tier === "business" ? " per seat" : ""} · ${taxNote}`;
 
   return (
     <div className={`relative flex flex-col rounded-[14px] border bg-white ${spec.recommended ? "border-maroon" : "border-line"}`}>
@@ -166,18 +166,20 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
       <div className="flex-1 px-4 pt-5 pb-4">
         <p className="text-[15px] font-medium text-ink">{TIER_LABEL[tier]}</p>
         <p className="mt-2 font-display text-[26px] font-semibold leading-none text-ink">
-          {tier === "free" ? "Free" : tier === "enterprise" ? "Custom" : fmtMoney(price!)}
+          {tier === "free" ? "Free" : tier === "enterprise" ? "Custom" : fmtMoneyShort(price!)}
+          {paid && <span className="ml-1 font-sans text-xs font-normal text-muted">{tier === "business" ? "/ seat / month" : "/ month"}</span>}
         </p>
+        {paid && interval === "annual" && (
+          <p className="mt-1 text-xs text-muted">
+            was <span className="line-through">{fmtMoneyShort(planPrice(tier, "monthly", 1))}</span>
+          </p>
+        )}
         <p className="mt-1.5 text-xs text-muted">{blurb}</p>
         {paid && interval === "annual" && (
           <p className="mt-1 text-xs font-medium text-success">
-            Save {fmtMoney(ANNUAL_SAVINGS[tier].amount)} · {ANNUAL_SAVINGS[tier].pct}%
+            Save {fmtMoneyShort(ANNUAL_SAVINGS[tier].amount)} · {ANNUAL_SAVINGS[tier].pct}%
           </p>
         )}
-        <div className={`mt-4 rounded-xl px-3 py-2.5 ${tier === "free" ? "bg-[#f5f5f5]" : "bg-brand-tint"}`}>
-          <p className="text-[14px] font-semibold text-ink">{spec.mainBenefit}</p>
-          <p className="mt-0.5 text-xs text-ink-2">{spec.mainBenefitDetail}</p>
-        </div>
         <div className="mt-4">
           <CtaButton target={tier} interval={interval} />
         </div>
@@ -190,10 +192,17 @@ function PlanCard({ spec, interval, compact }: { spec: (typeof PLAN_CARDS)[numbe
             <p className="font-semibold text-ink">What you get</p>
           )}
           {spec.highlights.map((h) => (
-            <div key={h.label} className="flex items-center justify-between border-b border-line pb-2 last:border-0">
-              <span className="text-ink-2">{h.label}</span>
-              {h.value ? <span className="font-semibold text-ink">{h.value}</span> : <IconCheck size={16} className="text-success" />}
-            </div>
+            h.value && h.value.length > 16 ? (
+              <div key={h.label} className="border-b border-line pb-2 last:border-0">
+                <span className="text-ink-2">{h.label}</span>
+                <p className="mt-0.5 font-semibold text-ink">{h.value}</p>
+              </div>
+            ) : (
+              <div key={h.label} className="flex items-center justify-between gap-2 border-b border-line pb-2 last:border-0">
+                <span className="min-w-0 text-ink-2">{h.label}</span>
+                {h.value ? <span className="shrink-0 font-semibold text-ink">{h.value}</span> : <IconCheck size={16} className="shrink-0 text-success" />}
+              </div>
+            )
           ))}
         </div>
       </div>
@@ -278,6 +287,7 @@ function GroupRows({ group, rows, interval }: { group: string; rows: (typeof COM
 function Cell({ v }: { v: CellValue }) {
   if (v === true) return <IconCheck size={18} className="mx-auto text-success" />;
   if (v === false) return <span className="text-muted-2">–</span>;
+  if (v === "Add-on") return <span className="chip bg-[#f5f5f5] text-[10px] uppercase tracking-wider text-ink-2">Add-on</span>;
   return <span className={/Unlimited|Custom|Yes/.test(v) ? "font-medium text-ink" : "text-ink-2"}>{v}</span>;
 }
 

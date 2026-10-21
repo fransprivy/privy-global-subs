@@ -1,5 +1,7 @@
 "use client";
 
+import { ANNUAL_SAVINGS } from "@/lib/catalog";
+
 import Link from "next/link";
 import { useState } from "react";
 import { useFlows } from "@/components/flows";
@@ -31,7 +33,7 @@ export default function PlansPage() {
                 { value: "annual", label: "Yearly" },
               ]}
             />
-            <span className="chip pointer-events-none absolute -bottom-3.5 left-[52%] whitespace-nowrap bg-gold px-2.5 text-[10px] text-white shadow-sm">★ SAVE UP TO 14%</span>
+            <span className="chip pointer-events-none absolute -bottom-3.5 left-[52%] whitespace-nowrap bg-gold px-2.5 text-[10px] text-white shadow-sm">★ SAVE UP TO {Math.max(ANNUAL_SAVINGS.personal.pct, ANNUAL_SAVINGS.business.pct)}%</span>
           </div>
           <p className="mt-4 flex items-center gap-1.5 text-xs text-ink-2">
             <IconMail size={14} /> Have a voucher code?{" "}

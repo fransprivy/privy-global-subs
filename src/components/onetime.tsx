@@ -75,7 +75,7 @@ export function PurchaseTypeModal({
           title="Manual payment"
           lines={[
             "Pay for this period only with QRIS, virtual account (BRI, BCA, CIMB, Mandiri, Permata) or card.",
-            "We remind you 7, 3 and 1 day before it ends. Buy the next period after it ends; it starts on the day you pay.",
+            "We remind you 7 days before it ends. Buy the next period after it ends; it starts on the day you pay.",
             "No automatic charge and no grace period: on the end date your account moves to Free.",
           ]}
         />

@@ -1,8 +1,6 @@
 import {
   ANNUAL_SAVINGS,
   BILL_LEAD_DAYS,
-  BILL_REMINDER_DAYS,
-  BUSINESS_ONLY_FEATURES,
   ENVELOPE_LIMIT,
   INTERVAL_LABEL,
   PAYMENT_ID_VALID_HOURS,
@@ -70,7 +68,6 @@ export const CONFIG = {
   smartDefaultThresholdDays: 14,
   /** Indonesia manual payment: first reminder this many days before the end; follow-ups at these days-left; no grace. */
   billLeadDays: BILL_LEAD_DAYS,
-  billReminderDays: BILL_REMINDER_DAYS,
   paymentIdValidHours: PAYMENT_ID_VALID_HOURS,
 };
 
@@ -285,6 +282,7 @@ function ctx(s: AppState, extra: Partial<EmailCtx> = {}): EmailCtx {
     backupLast4: "",
     defaultLast4: s.card?.last4 ?? "----",
     checkAmount: "",
+    endedEarly: false,
   };
   return { ...base, ...extra };
 }
@@ -914,7 +912,7 @@ function applySuccessfulRenewal(s: AppState, target: Target, invoiceId: string, 
   return next;
 }
 
-function endSubscription(s: AppState, reason: "grace_expired" | "cancelled", templateId: "N-09" | "N-14"): AppState {
+function endSubscription(s: AppState, reason: "grace_expired" | "cancelled" | "cancelled_in_grace", templateId: "N-09" | "N-14"): AppState {
   const sub = s.subscription!;
   let next: AppState = {
     ...s,
@@ -929,10 +927,14 @@ function endSubscription(s: AppState, reason: "grace_expired" | "cancelled", tem
   next = addHistory(
     next,
     "ended",
-    reason === "grace_expired" ? `${planName(sub.tier, sub.interval)} ended: payment not received` : `${planName(sub.tier, sub.interval)} ended`,
-    reason === "grace_expired" ? "Account moved to Free after the 14-day grace period. Documents kept." : "Cancelled subscription reached the end of its paid period. Account moved to Free."
+    reason === "grace_expired" ? `${planName(sub.tier, sub.interval)} ended: payment not received` : reason === "cancelled_in_grace" ? `${planName(sub.tier, sub.interval)} cancelled and ended today` : `${planName(sub.tier, sub.interval)} ended`,
+    reason === "grace_expired"
+      ? "Account moved to Free after the 14-day grace period. Documents kept."
+      : reason === "cancelled_in_grace"
+        ? "Cancelled while a renewal payment was overdue, so access ended at once (no access for the rest of the grace period). The unpaid invoice is voided. Account moved to Free."
+        : "Cancelled subscription reached the end of its paid period. Account moved to Free."
   );
-  next = sendEmail(next, templateId, { planName: planName(sub.tier, sub.interval) });
+  next = sendEmail(next, templateId, { planName: planName(sub.tier, sub.interval), endedEarly: reason === "cancelled_in_grace" });
   return next;
 }
 
@@ -959,7 +961,6 @@ export function runSweep(s: AppState): AppState {
       const last = next.prepaid!.periods.find((p) => p.end === pe)!;
       const remind = { prepaidEnd: fmtDate(pe), planName: planName(last.tier, last.interval), tierLabel: TIER_LABEL[last.tier], daysLeft: dl };
       if (dl === BILL_LEAD_DAYS) next = sendEmail(next, "N-30", remind, `N-30:${pe}`);
-      if (BILL_REMINDER_DAYS.includes(dl)) next = sendEmail(next, "N-30b", remind, `N-30b:T${dl}:${pe}`);
       if (isSameOrAfter(next.now, pe)) {
         next = expireOneTimePlan(next, pe);
       }
@@ -1273,7 +1274,13 @@ export function undoScheduledChange(s: AppState): AppState {
 /** Rule E: cancel at period end. */
 export function cancelAtPeriodEnd(s: AppState, reason?: string): AppState {
   const sub = activeSubscription(s)!;
-  const accessUntil = sub.status === "past_due" && sub.graceEndsAt ? sub.graceEndsAt : sub.currentPeriodEnd;
+  // Cancelling during the grace period ends the plan at once: no access for the rest of the grace period.
+  if (sub.status === "past_due") {
+    let ended = addHistory(s, "cancel_scheduled", "Cancelled during the grace period", `Renewal payment was overdue.${reason ? ` Reason: ${reason}.` : ""}`);
+    ended = endSubscription(ended, "cancelled_in_grace", "N-14");
+    return toast(ended, "Cancelled. Your plan ended today and the unpaid renewal was voided.", "info");
+  }
+  const accessUntil = sub.currentPeriodEnd;
   let next: AppState = {
     ...s,
     subscription: {
@@ -1758,33 +1765,6 @@ export function cardFromNumber(numberRaw: string, expMonth: number, expYear: num
   };
 }
 
-/** Losses shown in the Pro -> Personal checklist (UX-07). */
-export function downgradeLosses(s: AppState): string[] {
-  const others = s.workspace.members.filter((m) => m.role !== "owner");
-  const out: string[] = [];
-  if (others.length > 0) {
-    out.push(
-      `${s.workspace.name} becomes read-only for you and ${others.length} team member${others.length === 1 ? "" : "s"} (view and download only): ${others
-        .slice(0, 3)
-        .map((m) => m.name)
-        .join(", ")}${others.length > 3 ? ` and ${others.length - 3} more` : ""}`
-    );
-  }
-  out.push("Your Individual workspace loses Personal, included with Pro: it goes back to Free with 5 envelopes a month");
-  if (s.workspace.automations > 0) out.push(`${s.workspace.automations} workflow automation${s.workspace.automations === 1 ? "" : "s"} pause`);
-  if (s.workspace.retentionPolicies > 0) out.push(`${s.workspace.retentionPolicies} retention polic${s.workspace.retentionPolicies === 1 ? "y" : "ies"} pause`);
-  const off: string[] = [];
-  if (s.workspace.eSeal) off.push("e-Seal and Company e-Stamp");
-  if (s.workspace.branding) off.push("custom branding");
-  if (s.workspace.trustedDomain) off.push(`trusted domain (${s.workspace.trustedDomain})`);
-  if (off.length) out.push(`${capitalize(off.join(", "))} turn off`);
-  out.push(`Pro-only features disabled: ${BUSINESS_ONLY_FEATURES.filter((f) => !/e-Seal|branding|Trusted|automation|Retention/.test(f)).join(", ")}`);
-  return out;
-}
-
-function capitalize(t: string): string {
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
 
 /* ------------------------------------------------------------------ */
 /* Voucher codes (requirements V1 to V22)                               */

@@ -144,7 +144,7 @@ export const SCENARIOS: ScenarioMeta[] = [
     id: "id-onetime-qris",
     title: "Indonesia: Pro paid by QRIS, ends in 2 days",
     persona: "Frans, Pro Monthly × 3 seats paid manually via QRIS, active until 12 Sep",
-    description: "Reminders went out at D-7 and D-3. Any manual user can turn on auto-renewal, QRIS payers included. Let it end to see the account move to Free and the workspace turn read-only; then buy Pro again, starting that day.",
+    description: "The D-7 reminder went out (the only one). Any manual user can turn on auto-renewal, QRIS payers included. Let it end to see the account move to Free and the workspace turn read-only; then buy Pro again, starting that day.",
     tag: "Indonesia",
   },
   {
@@ -181,9 +181,9 @@ function workspace(business: boolean, memberCount = 1, status: "active" | "expir
         members: MEMBERS.slice(0, memberCount),
         automations: 3,
         retentionPolicies: 2,
-        eSeal: true,
+        eSeal: false,
         branding: true,
-        trustedDomain: "privy.id",
+        trustedDomain: null,
         closed: status === "expired",
         status,
         createdAt: "2026-07-01T09:00:00.000Z",
@@ -382,10 +382,10 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-08-10T09:00:00.000Z", "personal", "monthly", 1, "2026-08-10T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h2", at: "2026-09-10T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$7.49 for Sep 10, 2026 to Oct 10, 2026." },
-          { id: "h1", at: "2026-08-10T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly", detail: "Charged A$7.49 to card ending 4242." },
+          { id: "h2", at: "2026-09-10T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$11.99 for Sep 10, 2026 to Oct 10, 2026." },
+          { id: "h1", at: "2026-08-10T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly", detail: "Charged A$11.99 to card ending 4242." },
         ],
-        consents: [{ id: "c1", at: "2026-08-10T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$7.49 to my card every month starting today until I cancel.", amount: 7.49, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-08-10T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$11.99 to my card every month starting today until I cancel.", amount: 11.99, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "personal-annual": {
@@ -397,8 +397,8 @@ export function buildScenario(id: string): AppState {
         subscription: sub({ tier: "personal", interval: "annual", currentPeriodStart: start, currentPeriodEnd: end, anchorDay: 29, createdAt: start }),
         usage: { envelopesSent: 31, templates: 9, contacts: 58 },
         invoices: [paidInvoice(1, start, "personal", "annual", 1, start, end)],
-        history: [{ id: "h1", at: start, type: "subscribed", title: "Subscribed to Personal Yearly", detail: "Charged A$79.00 to card ending 4242. Renews Mar 29, 2027." }],
-        consents: [{ id: "c1", at: start, source: "checkout", text: "I agree that Privy will charge A$79.00 to my card every year starting today until I cancel.", amount: 79, interval: "annual", ip: "103.28.114.20" }],
+        history: [{ id: "h1", at: start, type: "subscribed", title: "Subscribed to Personal Yearly", detail: "Charged A$115.10 to card ending 4242. Renews Mar 29, 2027." }],
+        consents: [{ id: "c1", at: start, source: "checkout", text: "I agree that Privy will charge A$115.10 to my card every year starting today until I cancel.", amount: 115.1, interval: "annual", ip: "103.28.114.20" }],
       };
     }
     case "business-owner": {
@@ -419,12 +419,12 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-07-01T09:00:00.000Z", "business", "monthly", 8, "2026-07-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"),
         ],
         history: [
-          { id: "h4", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$308.00 for Sep 1, 2026 to Oct 1, 2026." },
+          { id: "h4", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$264.00 for Sep 1, 2026 to Oct 1, 2026." },
           { id: "h3", at: "2026-08-15T09:00:00.000Z", type: "card_added", title: "Backup card added", detail: "Mastercard ending 4444, expires 06/2028. Only charged if the default card is declined." },
-          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$308.00 for Aug 1, 2026 to Sep 1, 2026." },
-          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 8 seats", detail: "Charged A$308.00 to card ending 4242." },
+          { id: "h2", at: "2026-08-01T00:05:00.000Z", type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$264.00 for Aug 1, 2026 to Sep 1, 2026." },
+          { id: "h1", at: "2026-07-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 8 seats", detail: "Charged A$264.00 to card ending 4242." },
         ],
-        consents: [{ id: "c1", at: "2026-07-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$308.00 to my card every month starting today until I cancel.", amount: 308, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-07-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$264.00 to my card every month starting today until I cancel.", amount: 264, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "past-due": {
@@ -448,8 +448,8 @@ export function buildScenario(id: string): AppState {
           renewalCount: 2,
           createdAt: "2026-06-03T09:00:00.000Z",
           attempts: [
-            { id: "pa2", at: "2026-09-06T09:00:00.000Z", periodStart: due, attemptNo: 2, amount: 7.49, outcome: "soft_decline", declineCode: "insufficient_funds", onSession: false },
-            { id: "pa1", at: "2026-09-03T09:00:00.000Z", periodStart: due, attemptNo: 1, amount: 7.49, outcome: "soft_decline", declineCode: "insufficient_funds", onSession: false },
+            { id: "pa2", at: "2026-09-06T09:00:00.000Z", periodStart: due, attemptNo: 2, amount: 11.99, outcome: "soft_decline", declineCode: "insufficient_funds", onSession: false },
+            { id: "pa1", at: "2026-09-03T09:00:00.000Z", periodStart: due, attemptNo: 1, amount: 11.99, outcome: "soft_decline", declineCode: "insufficient_funds", onSession: false },
           ],
         }),
         usage: { envelopesSent: 18, templates: 6, contacts: 40 },
@@ -459,17 +459,17 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-07-03T00:00:00.000Z", "personal", "monthly", 1, "2026-07-03T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h4", at: "2026-09-06T09:00:00.000Z", type: "renewal_failed", title: "Retry 2 of A$7.49 failed", detail: "insufficient_funds" },
-          { id: "h3", at: "2026-09-03T09:00:00.000Z", type: "renewal_failed", title: "Renewal charge of A$7.49 failed", detail: "insufficient_funds. Retrying on Sep 6, 2026, Sep 10, 2026, Sep 17, 2026." },
-          { id: "h2", at: start, type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$7.49 for Aug 3, 2026 to Sep 3, 2026." },
+          { id: "h4", at: "2026-09-06T09:00:00.000Z", type: "renewal_failed", title: "Retry 2 of A$11.99 failed", detail: "insufficient_funds" },
+          { id: "h3", at: "2026-09-03T09:00:00.000Z", type: "renewal_failed", title: "Renewal charge of A$11.99 failed", detail: "insufficient_funds. Retrying on Sep 6, 2026, Sep 10, 2026, Sep 17, 2026." },
+          { id: "h2", at: start, type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$11.99 for Aug 3, 2026 to Sep 3, 2026." },
           { id: "h1", at: "2026-06-03T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly" },
         ],
         emails: [
           { id: "e2", templateId: "N-07", at: "2026-09-10T08:00:00.000Z", to: USER.email, subject: "Reminder: update your payment method to keep Personal Monthly", body: ["We still could not charge card ending 9995. You have 7 days of access left.", "Your documents are safe either way."], cta: { label: "Update payment method", href: "/settings/billing/payment-method" } },
-          { id: "e1", templateId: "N-05", at: "2026-09-03T09:00:00.000Z", to: USER.email, subject: "We could not renew your Privy Personal Monthly", body: ["Your bank declined the A$7.49 charge on card ending 9995.", "You keep full access until Sep 17, 2026. Update your card and we will retry right away; otherwise we retry on Sep 6, 2026, Sep 10, 2026, Sep 17, 2026."], cta: { label: "Update payment method", href: "/settings/billing/payment-method" } },
+          { id: "e1", templateId: "N-05", at: "2026-09-03T09:00:00.000Z", to: USER.email, subject: "We could not renew your Privy Personal Monthly", body: ["Your bank declined the A$11.99 charge on card ending 9995.", "You keep full access until Sep 17, 2026. Update your card and we will retry right away; otherwise we retry on Sep 6, 2026, Sep 10, 2026, Sep 17, 2026."], cta: { label: "Update payment method", href: "/settings/billing/payment-method" } },
         ],
         sentKeys: ["N-05:2026-09-03T00:00:00.000Z", "N-07:2026-09-03T09:00:00.000Z"],
-        consents: [{ id: "c1", at: "2026-06-03T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$7.49 to my card every month starting today until I cancel.", amount: 7.49, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-06-03T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$11.99 to my card every month starting today until I cancel.", amount: 11.99, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "pending-switch": {
@@ -498,14 +498,14 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-08-01T09:00:00.000Z", "business", "monthly", 3, "2026-08-01T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h3", at: "2026-09-08T10:00:00.000Z", type: "change_scheduled", title: "Switch to Pro Yearly scheduled for Oct 1, 2026", detail: "Nothing charged today. A$1,188.00 will be charged on Oct 1, 2026. You can undo until then." },
-          { id: "h2", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$115.50 for Sep 1, 2026 to Oct 1, 2026." },
+          { id: "h3", at: "2026-09-08T10:00:00.000Z", type: "change_scheduled", title: "Switch to Pro Yearly scheduled for Oct 1, 2026", detail: "Nothing charged today. A$950.40 will be charged on Oct 1, 2026. You can undo until then." },
+          { id: "h2", at: start, type: "renewed", title: "Pro Monthly renewed", detail: "Charged A$99.00 for Sep 1, 2026 to Oct 1, 2026." },
           { id: "h1", at: "2026-08-01T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 3 seats" },
         ],
         emails: [
-          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your billing switches to yearly on Oct 1, 2026", body: ["You stay on Pro Monthly until Oct 1, 2026. From then you are on Pro Yearly, A$1,188.00 per year, charged to card ending 4242. Nothing is charged today.", "Changed your mind? Keep your current billing with one click before Oct 1, 2026."], cta: { label: "Keep my current billing", href: "/settings/billing?action=undo" } },
+          { id: "e1", templateId: "N-11", at: "2026-09-08T10:00:00.000Z", to: USER.email, subject: "Your billing switches to yearly on Oct 1, 2026", body: ["You stay on Pro Monthly until Oct 1, 2026. From then you are on Pro Yearly, A$950.40 per year, charged to card ending 4242. Nothing is charged today.", "Changed your mind? Keep your current billing with one click before Oct 1, 2026."], cta: { label: "Keep my current billing", href: "/settings/billing?action=undo" } },
         ],
-        consents: [{ id: "c1", at: "2026-08-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$115.50 to my card every month starting today until I cancel.", amount: 115.5, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-08-01T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$99.00 to my card every month starting today until I cancel.", amount: 99, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "cancel-scheduled": {
@@ -566,10 +566,10 @@ export function buildScenario(id: string): AppState {
           paidInvoice(1, "2026-08-10T09:00:00.000Z", "personal", "monthly", 1, "2026-08-10T00:00:00.000Z", start),
         ],
         history: [
-          { id: "h2", at: "2026-09-10T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$7.49 for Sep 10, 2026 to Oct 10, 2026." },
-          { id: "h1", at: "2026-08-10T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly", detail: "Charged A$7.49 to card ending 4242." },
+          { id: "h2", at: "2026-09-10T00:05:00.000Z", type: "renewed", title: "Personal Monthly renewed", detail: "Charged A$11.99 for Sep 10, 2026 to Oct 10, 2026." },
+          { id: "h1", at: "2026-08-10T09:00:00.000Z", type: "subscribed", title: "Subscribed to Personal Monthly", detail: "Charged A$11.99 to card ending 4242." },
         ],
-        consents: [{ id: "c1", at: "2026-08-10T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$7.49 to my card every month starting today until I cancel.", amount: 7.49, interval: "monthly", ip: "103.28.114.20" }],
+        consents: [{ id: "c1", at: "2026-08-10T09:00:00.000Z", source: "checkout", text: "I agree that Privy will charge A$11.99 to my card every month starting today until I cancel.", amount: 11.99, interval: "monthly", ip: "103.28.114.20" }],
       };
     }
     case "business-expired": {
@@ -604,11 +604,11 @@ export function buildScenario(id: string): AppState {
         history: [
           { id: "h4", at: "2026-09-01T00:00:00.000Z", type: "workspace_expired", title: "Privy Product Team is now read-only", detail: "The Pro plan ended on Sep 1, 2026. Envelopes can be viewed and downloaded; no signing or new envelopes until the plan is reactivated. Your Individual workspace is back to Free." },
           { id: "h3", at: "2026-09-01T00:00:00.000Z", type: "ended", title: "Pro Monthly ended: payment not received", detail: "Grace period of 14 days ended. Documents kept." },
-          { id: "h2", at: "2026-08-18T00:05:00.000Z", type: "renewal_failed", title: "Renewal charge of A$192.50 failed", detail: "insufficient_funds. Retried on Aug 21, Aug 25 and Sep 1." },
+          { id: "h2", at: "2026-08-18T00:05:00.000Z", type: "renewal_failed", title: "Renewal charge of A$165.00 failed", detail: "insufficient_funds. Retried on Aug 21, Aug 25 and Sep 1." },
           { id: "h1", at: "2026-06-18T09:00:00.000Z", type: "subscribed", title: "Subscribed to Pro Monthly × 5 seats" },
         ],
         emails: [
-          { id: "e1", templateId: "N-09", at: "2026-09-01T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro plan has ended", body: ["We could not collect A$192.50 during the 14-day grace period, so Pro Monthly ended on Sep 1, 2026.", "Privy Product Team is now read-only: you and your 3 members can view and download envelopes but cannot sign or send. Reactivate any time, or hand the documents over to your Individual workspace."], cta: { label: "Reactivate Pro", href: "/settings/billing" } },
+          { id: "e1", templateId: "N-09", at: "2026-09-01T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro plan has ended", body: ["We could not collect A$165.00 during the 14-day grace period, so Pro Monthly ended on Sep 1, 2026.", "Privy Product Team is now read-only: you and your 3 members can view and download envelopes but cannot sign or send. Reactivate any time, or hand the documents over to your Individual workspace."], cta: { label: "Reactivate Pro", href: "/settings/billing" } },
         ],
       };
     }
@@ -693,10 +693,9 @@ export function buildScenario(id: string): AppState {
           { id: "h1", at: "2026-08-12T09:00:00.000Z", type: "bill_paid", title: "One-time purchase: Pro Monthly × 3 seats", detail: "Rp 297,000 via QRIS. Active Aug 12, 2026 to Sep 12, 2026. No automatic renewal." },
         ],
         emails: [
-          { id: "e2", templateId: "N-30b", at: "2026-09-09T00:00:00.000Z", to: USER.email, subject: "3 days left: your Privy Pro Monthly ends on Sep 12, 2026", body: ["Nothing to pay yet. On Sep 12, 2026 your account moves to Free; there is no grace period for manual payment. Your 2 team members in Privy Product Team lose signing access on that date. Buy again after it ends, or turn on auto-renewal now to continue without a gap."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" } },
           { id: "e1", templateId: "N-30", at: "2026-09-05T00:00:00.000Z", to: USER.email, subject: "Your Privy Pro Monthly ends on Sep 12, 2026", body: ["Your Pro Monthly plan is paid until Sep 12, 2026. It does not renew automatically, and there is nothing to pay yet.", "After Sep 12, 2026 your account moves to Free (5 envelopes a month) with your documents kept, and Privy Product Team becomes read-only for your 2 team members. To continue, buy a new period on or after Sep 12, 2026; it starts on the day you pay.", "Prefer no gap? Turn on auto-renewal with a card now and we charge it on Sep 12, 2026."], cta: { label: "Turn on auto-renewal", href: "/settings/billing?action=convert" } },
         ],
-        sentKeys: [`N-30:${end}`, `N-30b:T3:${end}`],
+        sentKeys: [`N-30:${end}`],
       };
     }
     case "id-recurring": {
